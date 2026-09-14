@@ -72,18 +72,29 @@ const googleLoginUrl = (returnTo: string) => `${API_URL}/v1/auth/google/start?re
 // Google은 앱 안 브라우저(웹뷰)에서 로그인을 막는다(403 disallowed_useragent). 국내는 카카오톡으로 링크를 여는 경우가 많다
 const IN_APP = /KAKAOTALK|NAVER\(inapp|Instagram|FBAN|FBAV|Line\/|DaumApps|; wv\)/i;
 
-/** Google 로그인 시작. 앱 안 브라우저면 기본 브라우저로 넘기고, 넘길 수 없으면(iOS의 카카오톡 외 앱) 방법을 안내한다 */
-export function startGoogleLogin(returnTo: string) {
-  const url = new URL(googleLoginUrl(returnTo), window.location.href).href;
+export const inAppBrowser = () => IN_APP.test(navigator.userAgent);
+
+/** 앱 안 브라우저에서 url을 기본 브라우저로 연다. 넘길 방법이 없으면(iOS의 카카오톡 외 앱) false */
+export function openInExternalBrowser(url: string): boolean {
   const ua = navigator.userAgent;
-  if (!IN_APP.test(ua)) {
-    window.location.href = url;
-  } else if (/KAKAOTALK/i.test(ua)) {
+  if (/KAKAOTALK/i.test(ua)) {
     window.location.href = `kakaotalk://web/openExternal?url=${encodeURIComponent(url)}`;
-  } else if (/Android/i.test(ua)) {
+    return true;
+  }
+  if (/Android/i.test(ua)) {
     const [scheme, rest] = url.split('://');
     window.location.href = `intent://${rest}#Intent;scheme=${scheme};package=com.android.chrome;end`;
-  } else {
+    return true;
+  }
+  return false;
+}
+
+/** Google 로그인 시작. 앱 안 브라우저면 기본 브라우저로 넘기고, 넘길 수 없으면 방법을 안내한다 */
+export function startGoogleLogin(returnTo: string) {
+  const url = new URL(googleLoginUrl(returnTo), window.location.href).href;
+  if (!inAppBrowser()) {
+    window.location.href = url;
+  } else if (!openInExternalBrowser(url)) {
     window.alert('이 앱 안의 브라우저에서는 Google 로그인을 할 수 없어요.\n화면의 메뉴(…)에서 "Safari로 열기" 또는 "다른 브라우저로 열기"를 누른 뒤 다시 로그인해 주세요.');
   }
 }

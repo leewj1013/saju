@@ -3,11 +3,15 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { C } from '../components/ui';
-import { clearLast, fetchMe, logout, startGoogleLogin } from '../lib/saju';
+import { clearLast, fetchMe, inAppBrowser, logout, openInExternalBrowser, startGoogleLogin } from '../lib/saju';
 import type { Me } from '../lib/saju';
 
 // 웹: 스크린 리더가 한국어로 읽도록. 단일 페이지 출력은 +html.tsx가 적용되지 않아(export 결과 lang="en") 여기서 지정
 if (Platform.OS === 'web') document.documentElement.lang = 'ko';
+
+// 카카오톡 등 앱 안 브라우저는 로그인 쿠키 · 저장된 결과가 기본 브라우저와 따로라, 링크를 다시 열 때마다 로그아웃돼 보인다.
+// 들어오자마자 같은 주소를 기본 브라우저로 넘긴다 (넘길 수 없는 iOS의 카카오톡 외 앱은 그대로 두고, 로그인 때 안내)
+if (Platform.OS === 'web' && inAppBrowser()) openInExternalBrowser(window.location.href);
 
 /** 헤더 오른쪽: 로그인 전 "Google로 로그인", 로그인 후 "보관함 · 로그아웃" (웹만) */
 function Account() {
