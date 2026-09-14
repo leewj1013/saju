@@ -1,5 +1,7 @@
 // 룰 엔진 (PRD §5.5). 만세력 chart + RuleSet → 카테고리·섹션별 해석 문장. IO 없음.
 import { STEMS, STEM_KO, BRANCHES, BRANCH_KO, ELEMENTS, ELEMENT_KO } from '../engine/tables.ts';
+import { matchFacts } from '../engine/match.ts';
+import type { Relation } from '../engine/match.ts';
 
 export type Operator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'contains';
 export type Condition = { code: string; paramKey: string; operator: Operator; value: unknown; labelKo: string };
@@ -19,6 +21,15 @@ export const CATEGORIES: Record<string, string> = {
   TOTAL: '총운', PERSONALITY: '기본 성향', WEALTH: '재물운', CAREER: '직업운', LOVE: '연애운', DAEWOON: '대운 흐름',
 };
 
+// 궁합 리포트 (키 순서 = 탭 순서). relations가 있으면 그 관계일 때만 보인다
+export const MATCH_CATEGORIES: Record<string, { title: string; relations?: Relation[] }> = {
+  MATCH_TOTAL: { title: '총평' },
+  MATCH_PERSONALITY: { title: '성격 조화' },
+  MATCH_LOVE: { title: '연애 · 결혼', relations: ['PARTNER'] },
+  MATCH_BOND: { title: '소통 · 함께 지내기', relations: ['FAMILY', 'FRIEND'] },
+  MATCH_CONFLICT: { title: '갈등 포인트' },
+};
+
 // 엔진 코드 → 한글 (템플릿 |ko 필터). 12운성의 병·사·묘는 천간·지지 표기와 같은 글자라 겹쳐도 된다
 export const LABELS: Record<string, string> = {
   ...Object.fromEntries(STEMS.map((s, i) => [s, STEM_KO[i]])),
@@ -31,6 +42,8 @@ export const LABELS: Record<string, string> = {
   JEOL: '절', TAE: '태', YANG: '양', YANGIN: '양인',
   VERY_WEAK: '극신약', WEAK: '신약', BALANCED: '중화', STRONG: '신강', VERY_STRONG: '극신강',
   FORWARD: '순행', BACKWARD: '역행', M: '남성', F: '여성',
+  PARTNER: '연인', FAMILY: '가족', FRIEND: '친구 · 동료',
+  EXCELLENT: '아주 잘 맞는 사이', GOOD: '서로 채워 주는 사이', FAIR: '맞춰 갈수록 편안해지는 사이', EFFORT: '차이를 알면 단단해지는 사이',
 };
 
 const OPS: Record<Operator, (a: any, b: any) => boolean> = {
@@ -87,15 +100,36 @@ function fnv1a(s: string): number {
   return h;
 }
 
+// 이름은 빼고 8자 + 성별로 문장 변형을 고정: 같은 사주면 어느 기기에서든 같은 문장
+const chartKey = (chart: any) => ['year', 'month', 'day', 'hour']
+  .map(k => (chart.pillars[k] ? chart.pillars[k].stem + chart.pillars[k].branch : '-')).join('') + chart.meta.gender;
+
 export function buildReport(chart: any, rs: RuleSet, name?: string) {
   const ctx = { ...chart, name: name || '당신' };
   // 이름이 없으면 "{{name}}님"이 "당신님"이 되지 않도록 "당신"으로 쓴다
   const fill = (text: string) => render(name ? text : text.replaceAll('{{name}}님', '{{name}}'), ctx);
-  // 이름은 빼고 8자 + 성별로 문장 변형을 고정: 같은 사주면 어느 기기에서든 같은 문장
-  const chartKey = ['year', 'month', 'day', 'hour']
-    .map(k => (chart.pillars[k] ? chart.pillars[k].stem + chart.pillars[k].branch : '-')).join('') + chart.meta.gender;
-  const order = Object.keys(CATEGORIES);
-  const sections = rs.sections.toSorted((a, b) => order.indexOf(a.category) - order.indexOf(b.category) || a.displayOrder - b.displayOrder);
+  return selectRules(ctx, rs, CATEGORIES, chartKey(chart), fill);
+}
+
+/**
+ * 궁합 리포트. ctx = { a, b, match, aName, bName }.
+ * 템플릿은 "님"을 직접 쓰지 않는다: aName · bName이 이름이 있으면 "원준님", 없으면 "나" · "상대"이고 조사 필터가 받침에 맞춘다
+ */
+export function buildMatchReport(a: any, b: any, rs: RuleSet, relation: Relation, names: { a?: string; b?: string } = {}) {
+  const match = matchFacts(a, b, relation);
+  const ctx = { a, b, match, aName: names.a ? `${names.a}님` : '나', bName: names.b ? `${names.b}님` : '상대' };
+  const titles = Object.fromEntries(Object.entries(MATCH_CATEGORIES)
+    .filter(([, c]) => !c.relations || c.relations.includes(relation))
+    .map(([category, c]) => [category, c.title]));
+  return { match, ...selectRules(ctx, rs, titles, `${chartKey(a)}|${chartKey(b)}|${relation}`, text => render(text, ctx)) };
+}
+
+/** 섹션별 룰 선택 (개인 · 궁합 공용). titles: 이 리포트에 넣을 카테고리 → 제목, 키 순서가 노출 순서 */
+function selectRules(ctx: object, rs: RuleSet, titles: Record<string, string>, variantKey: string, fill: (text: string) => string) {
+  const order = Object.keys(titles);
+  const sections = rs.sections
+    .filter(s => s.category in titles)
+    .toSorted((a, b) => order.indexOf(a.category) - order.indexOf(b.category) || a.displayOrder - b.displayOrder);
 
   const trace: { category: string; section: string; ruleCode: string; priority: number; selected: boolean; dropReason: DropReason | null }[] = [];
   const categories: { category: string; title: string; sections: { section: string; title: string; items: any[] }[] }[] = [];
@@ -116,12 +150,12 @@ export function buildReport(chart: any, rs: RuleSet, name?: string) {
       trace.push({ category: sec.category, section: sec.section, ruleCode: r.ruleCode, priority: r.priority, selected: !dropReason, dropReason });
       if (dropReason) continue;
       if (r.exclusiveGroup) usedGroups.add(r.exclusiveGroup);
-      const t = r.templates[fnv1a(chartKey + r.ruleCode) % r.templates.length];
+      const t = r.templates[fnv1a(variantKey + r.ruleCode) % r.templates.length];
       items.push({ ruleCode: r.ruleCode, variantNo: t.variantNo, isFallback: r.isFallback, title: fill(t.title), text: fill(t.body) });
     }
 
     let cat = categories.find(c => c.category === sec.category);
-    if (!cat) categories.push((cat = { category: sec.category, title: CATEGORIES[sec.category], sections: [] }));
+    if (!cat) categories.push((cat = { category: sec.category, title: titles[sec.category], sections: [] }));
     cat.sections.push({ section: sec.section, title: sec.titleKo, items });
   }
 

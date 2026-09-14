@@ -166,14 +166,54 @@ export const openShare = (token: string) => api<Shared>(`/v1/share/${encodeURICo
 export const deleteProfile = (profileId: string) =>
   api<void>(`/v1/profiles/${encodeURIComponent(profileId)}`, { method: 'DELETE' });
 
+// ── 궁합. 서버에 저장하지 않고, 고르던 두 사람과 마지막 결과만 기기에 둔다
+export type Relation = 'PARTNER' | 'FAMILY' | 'FRIEND';
+export const RELATIONS: { value: Relation; label: string }[] = [
+  { value: 'PARTNER', label: '연인' }, { value: 'FAMILY', label: '가족' }, { value: 'FRIEND', label: '친구 · 동료' },
+];
+/** 보관함 태그로 관계를 짐작한다 (본인 · 기타 · 없음은 짐작하지 않음) */
+export const relationOfTag = (tag: string | null): Relation | undefined =>
+  tag === 'PARTNER' || tag === 'FAMILY' || tag === 'FRIEND' ? tag : undefined;
+export type Person = { profile: Profile; options: Options };
+export const personOf = (p: Profile & { options: Options }): Person => ({
+  profile: { name: p.name, gender: p.gender, calendar: p.calendar, isLeapMonth: p.isLeapMonth, birthDate: p.birthDate, birthTime: p.birthTime, regionCode: p.regionCode },
+  options: p.options,
+});
+export type MatchResult = {
+  relation: Relation;
+  a: Omit<Reading, 'report'>;
+  b: Omit<Reading, 'report'>;
+  match: { score: number; band: string; points: { label: string; tone: 'good' | 'care' }[] };
+  report: Reading['report'];
+};
+export const requestMatch = (a: Person, b: Person, relation: Relation) =>
+  api<MatchResult>('/v1/matches', { method: 'POST', body: JSON.stringify({ a, b, relation }) });
+
+export type MatchDraft = { a?: Person; b?: Person; relation: Relation };
+export type SavedMatch = { a: Person; b: Person; result: MatchResult };
+const DRAFT_KEY = 'saju.matchDraft';
+const MATCH_KEY = 'saju.lastMatch';
+async function readJson<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+export const loadMatchDraft = async (): Promise<MatchDraft> => (await readJson<MatchDraft>(DRAFT_KEY)) ?? { relation: 'PARTNER' };
+export const saveMatchDraft = (draft: MatchDraft) => AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+export const loadMatch = () => readJson<SavedMatch>(MATCH_KEY);
+export const saveMatch = (saved: SavedMatch) => AsyncStorage.setItem(MATCH_KEY, JSON.stringify(saved));
+
 /** 서울 기준 오늘 날짜 YYYY-MM-DD. 기기에 저장된 결과의 오늘의 운세가 지난 날짜인지 판단할 때 쓴다 */
 export const seoulToday = () => new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10);
 
 // 비회원은 기기에 최근 1건만 보관 (PRD §3.3)
 const LAST_KEY = 'saju.lastReading';
 export const saveLast = (saved: Saved) => AsyncStorage.setItem(LAST_KEY, JSON.stringify(saved));
-/** 기기에 남은 결과 삭제: 비회원으로 새로 시작할 때 · 로그아웃할 때 (공용 기기에서 앞사람 정보가 남지 않게) */
-export const clearLast = () => AsyncStorage.removeItem(LAST_KEY).catch(() => {});
+/** 기기에 남은 결과 · 궁합 삭제: 비회원으로 새로 시작할 때 · 로그아웃할 때 (공용 기기에서 앞사람 정보가 남지 않게) */
+export const clearLast = () => AsyncStorage.multiRemove([LAST_KEY, DRAFT_KEY, MATCH_KEY]).catch(() => {});
 export async function loadLast(): Promise<Saved | null> {
   try {
     const raw = await AsyncStorage.getItem(LAST_KEY);

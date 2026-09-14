@@ -898,6 +898,7 @@ MVP 합계 약 **216 룰 × 평균 2 변형 ≈ 430 문장**.
 | Method | Path | 인증 | 설명 |
 |---|---|---|---|
 | POST | `/v1/readings` | 없음 | 입력 → 계산 + 리포트 (서버에 저장하지 않음) |
+| POST | `/v1/matches` | 없음 | 궁합: `{a, b, relation}` (a · b는 `/v1/readings`와 같은 입력, relation은 `PARTNER` 연인 · `FAMILY` 가족 · `FRIEND` 친구·동료) → 두 사람 chart + `match`(점수 40~98 · 등급 · 근거 칩) + 궁합 리포트. 관계에 따라 탭이 달라짐 (연애·결혼은 연인만, 소통은 가족·친구만). 입력 오류는 `a.birthDate`처럼 사람별 필드. 저장하지 않음 |
 | GET | `/v1/auth/google/start` | 없음 | `?returnTo=/경로` → Google 로그인 화면으로 이동 (OIDC 인가 코드 + PKCE, 범위 `openid`) |
 | GET | `/v1/auth/google/callback` | 없음 | 로그인 완료 → 세션 쿠키 발급 후 `returnTo`로 이동, 실패 시 `/?login=failed` |
 | GET | `/v1/me` | 회원 | 로그인 상태 확인 (비로그인 401) |

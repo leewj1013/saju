@@ -7,7 +7,9 @@ import fastifyStatic from '@fastify/static';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { calculate, SajuInputError } from './engine/index.ts';
 import type { SajuInput, SajuOptions } from './engine/index.ts';
-import { buildReport } from './rules/engine.ts';
+import { buildMatchReport, buildReport } from './rules/engine.ts';
+import { RELATIONS } from './engine/match.ts';
+import type { Relation } from './engine/match.ts';
 import type { RuleSet } from './rules/engine.ts';
 import { loadRuleSet, validateRuleSet } from './rules/authoring.ts';
 import { loadPublishedRuleSet, publishRuleSet, versionOf } from './rules/store.ts';
@@ -44,6 +46,13 @@ const READING_BODY = {
   },
 };
 
+// 궁합: 두 사람의 입력(결과 요청과 같은 모양) + 관계
+const MATCH_BODY = {
+  type: 'object',
+  required: ['a', 'b', 'relation'],
+  properties: { a: READING_BODY, b: READING_BODY, relation: { type: 'string', enum: RELATIONS } },
+};
+
 // 계측 이벤트 (PRD §8). 허용한 속성만 남기고 개인정보는 받지 않는다. 기능이 붙을 때 이벤트를 추가한다
 const EVENT_PROPS: Record<string, string[]> = {
   input_start: [],
@@ -53,6 +62,8 @@ const EVENT_PROPS: Record<string, string[]> = {
   tab_view: ['category'],
   save: ['created', 'afterLogin'],
   share: ['channel', 'hideBirth'],
+  match_submit: ['relation'],
+  match_view: ['relation'],
 };
 
 const EVENT_BODY = {
@@ -174,26 +185,33 @@ export function buildServer({
     return reply.code(204).send();
   });
 
+  // 룰 코드 · 우선순위는 내보내지 않는다 (PRD §6)
+  const publicReport = (report: ReturnType<typeof buildReport>) => ({
+    ruleSetVersion: report.ruleSetVersion,
+    categories: report.categories.map(c => ({
+      category: c.category,
+      title: c.title,
+      sections: c.sections
+        .filter(s => s.items.length)
+        .map(s => ({ section: s.section, title: s.title, items: s.items.map(({ title, text }) => ({ title, text })) })),
+    })),
+  });
+
   // 계산 + 해석 응답. 입력이 틀리면 SajuInputError를 던진다 (새 결과 · 보관함 열기 공용)
   const buildReading = (profile: SajuInput & { name?: string }, options: SajuOptions) => {
     const { chart, converted, notices } = calculate(profile, options, now());
-    const report = buildReport(chart, ruleSet, profile.name?.trim());
-    return {
-      converted,
-      notices,
-      chart,
-      report: {
-        ruleSetVersion: report.ruleSetVersion,
-        // 룰 코드 · 우선순위는 내보내지 않는다 (PRD §6)
-        categories: report.categories.map(c => ({
-          category: c.category,
-          title: c.title,
-          sections: c.sections
-            .filter(s => s.items.length)
-            .map(s => ({ section: s.section, title: s.title, items: s.items.map(({ title, text }) => ({ title, text })) })),
-        })),
-      },
-    };
+    return { converted, notices, chart, report: publicReport(buildReport(chart, ruleSet, profile.name?.trim())) };
+  };
+
+  type Person = { profile: SajuInput & { name?: string }; options: SajuOptions };
+  // 입력 오류는 누구의 칸인지 알 수 있게 필드 앞에 a. · b. 를 붙인다
+  const calculateFor = (side: 'a' | 'b', { profile, options }: Person) => {
+    try {
+      return calculate(profile, options, now());
+    } catch (e) {
+      if (e instanceof SajuInputError) throw new SajuInputError(e.errors.map(err => ({ ...err, field: `${side}.${err.field}` })));
+      throw e;
+    }
   };
 
   app.post('/v1/readings', { schema: { body: READING_BODY }, preHandler: limiter(rateLimitPerMin) }, async (req, reply) => {
@@ -204,6 +222,31 @@ export function buildServer({
       if (e instanceof SajuInputError) return reply.code(400).send({ errors: e.errors });
       throw e;
     }
+  });
+
+  // 궁합 (비회원도 가능, 서버에 저장하지 않음). 두 사람 모두 틀렸으면 둘 다 알려 준다
+  app.post('/v1/matches', { schema: { body: MATCH_BODY }, preHandler: limiter(rateLimitPerMin) }, async (req, reply) => {
+    const { a, b, relation } = req.body as { a: Person; b: Person; relation: Relation };
+    const results = (['a', 'b'] as const).map(side => {
+      try {
+        return calculateFor(side, side === 'a' ? a : b);
+      } catch (e) {
+        if (e instanceof SajuInputError) return e;
+        throw e;
+      }
+    });
+    const errors = results.flatMap(r => (r instanceof SajuInputError ? r.errors : []));
+    if (errors.length) return reply.code(400).send({ errors });
+
+    const [ra, rb] = results as ReturnType<typeof calculate>[];
+    const report = buildMatchReport(ra.chart, rb.chart, ruleSet, relation, { a: a.profile.name?.trim(), b: b.profile.name?.trim() });
+    return {
+      relation,
+      a: { converted: ra.converted, notices: ra.notices, chart: ra.chart },
+      b: { converted: rb.converted, notices: rb.notices, chart: rb.chart },
+      match: report.match,
+      report: publicReport(report),
+    };
   });
 
   if (auth && dataKey) {

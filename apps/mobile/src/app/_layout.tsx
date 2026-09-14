@@ -21,18 +21,27 @@ function Account() {
   }, []);
 
   if (Platform.OS !== 'web' || me === undefined) return null;
+  const matchButton = (
+    <Pressable accessibilityRole="button" accessibilityLabel="궁합 보기" hitSlop={8} style={s.button} onPress={() => router.push('/match')}>
+      <Text style={s.text}>궁합</Text>
+    </Pressable>
+  );
   if (!me) {
     return (
-      <Pressable
-        accessibilityRole="button" accessibilityLabel="Google로 로그인" hitSlop={8} style={s.button}
-        onPress={() => startGoogleLogin(window.location.pathname + window.location.search)}
-      >
-        <Text style={s.text}>Google로 로그인</Text>
-      </Pressable>
+      <View style={s.row}>
+        {matchButton}
+        <Pressable
+          accessibilityRole="button" accessibilityLabel="Google로 로그인" hitSlop={8} style={s.button}
+          onPress={() => startGoogleLogin(window.location.pathname + window.location.search)}
+        >
+          <Text style={s.text}>Google로 로그인</Text>
+        </Pressable>
+      </View>
     );
   }
   return (
     <View style={s.row}>
+      {matchButton}
       <Pressable accessibilityRole="button" accessibilityLabel="사주 보관함" hitSlop={8} style={s.button} onPress={() => router.push('/archive')}>
         <Text style={s.text}>보관함</Text>
       </Pressable>
@@ -66,6 +75,8 @@ export default function RootLayout() {
         <Stack.Screen name="result" options={{ title: '사주 결과' }} />
         <Stack.Screen name="archive" options={{ title: '사주 보관함' }} />
         <Stack.Screen name="s/[token]" options={{ title: '공유된 사주' }} />
+        <Stack.Screen name="match" options={{ title: '궁합 보기' }} />
+        <Stack.Screen name="match-result" options={{ title: '궁합 결과' }} />
       </Stack>
     </>
   );
@@ -73,7 +84,7 @@ export default function RootLayout() {
 
 const s = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center' },
-  button: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center' },
+  button: { minHeight: 44, paddingHorizontal: 9, justifyContent: 'center' }, // 모바일 헤더에 버튼 3개가 들어가도록
   text: { fontSize: 14, fontWeight: '600', color: C.ink },
   muted: { color: C.ink2, fontWeight: '500' },
 });

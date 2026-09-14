@@ -5,19 +5,22 @@ import path from 'node:path';
 import { buildReport, evalExpr, render } from '../src/rules/engine.ts';
 import type { Rule, RuleSet } from '../src/rules/engine.ts';
 import { generateConditions } from '../src/rules/conditions.ts';
-import { SAMPLE_CHART, coverage, loadRuleSet, parseCsv, validateRuleSet } from '../src/rules/authoring.ts';
+import { SAMPLE_CHART, SAMPLE_MATCH, coverage, loadRuleSet, parseCsv, validateRuleSet } from '../src/rules/authoring.ts';
 
 const conds = Object.fromEntries(generateConditions().map(c => [c.code, c]));
 const content = () => loadRuleSet(path.resolve(import.meta.dirname, '../content'), 'test');
 const codesOf = (report: ReturnType<typeof buildReport>, category: string, section: string) =>
   report.categories.find(c => c.category === category)!.sections.find(s => s.section === section)!.items.map(i => i.ruleCode);
 
-test('조건 코드 133개, 코드 중복 없음, 모든 경로가 chart에 존재', () => {
+test('조건 코드 170개(개인 133 · 궁합 37), 코드 중복 없음, 모든 경로가 chart · 궁합 ctx에 존재', () => {
   const list = generateConditions();
-  assert.equal(list.length, 133);
-  assert.equal(new Set(list.map(c => c.code)).size, 133);
-  const chart: any = SAMPLE_CHART;
-  for (const c of list) assert.notEqual(c.paramKey.split('.').reduce((o, k) => o?.[k], chart), undefined, c.code);
+  assert.equal(list.length, 170);
+  assert.equal(new Set(list.map(c => c.code)).size, 170);
+  assert.equal(list.filter(c => c.code.startsWith('MATCH_')).length, 37);
+  for (const c of list) {
+    const ctx: any = c.code.startsWith('MATCH_') ? SAMPLE_MATCH : SAMPLE_CHART;
+    assert.notEqual(c.paramKey.split('.').reduce((o, k) => o?.[k], ctx), undefined, c.code);
+  }
 });
 
 test('조건식: all · any · none · 중첩, 값이 없으면 false', () => {
@@ -149,7 +152,7 @@ test('커버리지 시뮬레이션', () => {
   assert.equal(cov.rows.length, ruleSet.sections.length);
   assert.equal(cov.rows.find(r => r.section === 'PERSONALITY/SUMMARY')!.fallbackOnlyRate, 0); // 일간 10종이 모두 덮음
 
-  // 조건을 빈틈 없이 나눠 두었으므로 어떤 사주든 모든 섹션에 문장이 있고, 요약은 기본 문구로만 채워지지 않는다.
+  // 조건을 빈틈 없이 나눠 두었으므로 어떤 사주 · 어떤 두 사람이든 모든 섹션에 문장이 있고, 요약은 기본 문구로만 채워지지 않는다.
   // 대운 요약만 예외: 첫 대운이 시작되기 전인 어린 사용자는 현재 대운이 없다.
   for (const row of cov.rows) {
     assert.equal(row.emptyRate, 0, `${row.section} 비어 있음 ${row.emptyRate}`);

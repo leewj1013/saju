@@ -3,9 +3,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { calculate, SajuInputError } from '../engine/index.ts';
-import { CATEGORIES, FILTERS, PLACEHOLDER, buildReport, getPath, leaves } from './engine.ts';
+import { CATEGORIES, FILTERS, MATCH_CATEGORIES, PLACEHOLDER, buildMatchReport, buildReport, getPath, leaves } from './engine.ts';
 import type { Rule, RuleSet } from './engine.ts';
 import { generateConditions } from './conditions.ts';
+import { RELATIONS, matchFacts } from '../engine/match.ts';
 
 /** 플레이스홀더 검증 기준 chart: PRD 예시 사용자. 대운이 진행 중이라 모든 경로가 채워져 있다 */
 export const SAMPLE_CHART = calculate(
@@ -13,6 +14,16 @@ export const SAMPLE_CHART = calculate(
   { jasiMode: 'UNIFIED', longitudeCorrection: true },
   Date.UTC(2026, 8, 13, 3),
 ).chart;
+
+/** 궁합 플레이스홀더 검증 기준 ctx: 예시 사용자 + 예시 상대 */
+const SAMPLE_PARTNER = calculate(
+  { gender: 'F', calendar: 'SOLAR', birthDate: '1992-05-05', birthTime: '09:00', regionCode: '11' },
+  { jasiMode: 'UNIFIED', longitudeCorrection: true },
+  Date.UTC(2026, 8, 13, 3),
+).chart;
+export const SAMPLE_MATCH = {
+  a: SAMPLE_CHART, b: SAMPLE_PARTNER, match: matchFacts(SAMPLE_CHART, SAMPLE_PARTNER, 'PARTNER'), aName: '나', bName: '상대',
+};
 
 /** RFC 4180 CSV (따옴표 안의 쉼표·줄바꿈·"" 지원). 첫 줄은 헤더 */
 export function parseCsv(text: string): Record<string, string>[] {
@@ -71,12 +82,13 @@ export function loadRuleSet(dir: string, version: string): { ruleSet: RuleSet; p
 export function validateRuleSet(rs: RuleSet): string[] {
   const errors: string[] = [];
   const sectionKeys = new Set(rs.sections.map(s => `${s.category}/${s.section}`));
+  const allCategories = [...Object.keys(CATEGORIES), ...Object.keys(MATCH_CATEGORIES)];
 
   for (const s of rs.sections) {
-    if (!(s.category in CATEGORIES)) errors.push(`sections.csv: 알 수 없는 카테고리 ${s.category}`);
+    if (!allCategories.includes(s.category)) errors.push(`sections.csv: 알 수 없는 카테고리 ${s.category}`);
     if (!(s.maxItems >= 1)) errors.push(`sections.csv: ${s.category}/${s.section}의 max_items는 1 이상이어야 합니다`);
   }
-  for (const category of Object.keys(CATEGORIES)) {
+  for (const category of allCategories) {
     if (!rs.rules.some(r => r.isActive && r.isFallback && r.category === category && r.section === 'SUMMARY')) {
       errors.push(`${category}: SUMMARY fallback 룰이 없습니다`);
     }
@@ -96,12 +108,13 @@ export function validateRuleSet(rs: RuleSet): string[] {
     const variants = r.templates.map(t => t.variantNo);
     if (new Set(variants).size !== variants.length || !variants.every(Number.isInteger)) errors.push(`${where}: variant_no가 중복되거나 정수가 아닙니다`);
 
+    const sample = r.category in MATCH_CATEGORIES ? SAMPLE_MATCH : SAMPLE_CHART;
     for (const t of r.templates) {
       const at = `${where}#${t.variantNo}`;
       const text = `${t.title}\n${t.body}`;
       if (!t.body) errors.push(`${at}: 본문이 비어 있습니다`);
       for (const [, p, filters] of text.matchAll(PLACEHOLDER)) {
-        if (p !== 'name' && getPath(SAMPLE_CHART, p) === undefined) errors.push(`${at}: 알 수 없는 플레이스홀더 {{${p}}}`);
+        if (p !== 'name' && getPath(sample, p) === undefined) errors.push(`${at}: 알 수 없는 플레이스홀더 {{${p}}}`);
         for (const f of filters.split('|').slice(1)) if (!FILTERS.includes(f)) errors.push(`${at}: 알 수 없는 필터 |${f}`);
       }
       if (/\{\{|\}\}/.test(text.replace(PLACEHOLDER, ''))) errors.push(`${at}: 닫히지 않은 플레이스홀더`);
@@ -110,16 +123,32 @@ export function validateRuleSet(rs: RuleSet): string[] {
   return errors;
 }
 
-/** 무작위 출생 n건으로 리포트를 만들어 섹션별 "fallback만 나옴" · "비어 있음" 비율을 잰다 */
+/**
+ * 무작위 출생 n건으로 리포트를 만들어 섹션별 "fallback만 나옴" · "비어 있음" 비율을 잰다.
+ * 궁합은 직전 사주와 짝지어 관계를 돌아가며 만든다 (관계별 카테고리는 나온 횟수 기준 비율)
+ */
 export function coverage(rs: RuleSet, n = 10_000) {
   let seed = 7;
   const rnd = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32;
   const asOf = Date.UTC(2026, 8, 13, 3);
   const from = Date.UTC(1900, 0, 1);
   const to = Date.UTC(2026, 8, 1);
-  const stats = new Map<string, { fallbackOnly: number; empty: number }>();
+  const stats = new Map<string, { seen: number; fallbackOnly: number; empty: number }>();
+  const tally = (categories: { category: string; sections: { section: string; items: { isFallback: boolean }[] }[] }[]) => {
+    for (const c of categories) {
+      for (const s of c.sections) {
+        const key = `${c.category}/${s.section}`;
+        const st = stats.get(key) ?? { seen: 0, fallbackOnly: 0, empty: 0 };
+        stats.set(key, st);
+        st.seen++;
+        if (!s.items.length) st.empty++;
+        else if (s.items.every(i => i.isFallback)) st.fallbackOnly++;
+      }
+    }
+  };
 
   let total = 0;
+  let prev: any = null;
   while (total < n) {
     const iso = new Date(from + rnd() * (to - from)).toISOString();
     const input = {
@@ -134,18 +163,12 @@ export function coverage(rs: RuleSet, n = 10_000) {
       throw e;
     }
     total++;
-    for (const c of buildReport(chart, rs).categories) {
-      for (const s of c.sections) {
-        const key = `${c.category}/${s.section}`;
-        const st = stats.get(key) ?? { fallbackOnly: 0, empty: 0 };
-        stats.set(key, st);
-        if (!s.items.length) st.empty++;
-        else if (s.items.every(i => i.isFallback)) st.fallbackOnly++;
-      }
-    }
+    tally(buildReport(chart, rs).categories);
+    if (prev) tally(buildMatchReport(prev, chart, rs, RELATIONS[total % RELATIONS.length]).categories);
+    prev = chart;
   }
 
-  const rows = [...stats].map(([section, s]) => ({ section, fallbackOnlyRate: s.fallbackOnly / total, emptyRate: s.empty / total }));
+  const rows = [...stats].map(([section, s]) => ({ section, fallbackOnlyRate: s.fallbackOnly / s.seen, emptyRate: s.empty / s.seen }));
   const warnings = rows
     .filter(r => r.fallbackOnlyRate > 0.05)
     .map(r => `${r.section}: fallback만 나온 비율 ${(r.fallbackOnlyRate * 100).toFixed(1)}%`);

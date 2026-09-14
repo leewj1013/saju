@@ -5,7 +5,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimen
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, C, Chip, ErrorText, OH } from '../components/ui';
 import {
-  ELEMENTS, ELEMENT_HANJA, LABELS, ReadingError, branchInfo, createShare, errorMessage, fetchMe, listProfiles, loadLast, requestReading, sameSaju, saveLast,
+  ELEMENTS, ELEMENT_HANJA, LABELS, ReadingError, branchInfo, createShare, errorMessage, fetchMe, listProfiles, loadLast, loadMatchDraft, requestReading, sameSaju, saveLast, saveMatchDraft,
   saveProfile, seoulToday, startGoogleLogin, stemInfo, track, zodiac,
 } from '../lib/saju';
 import type { Me, Reading, Saved } from '../lib/saju';
@@ -73,7 +73,19 @@ export function ResultBody({ saved, shared = false }: { saved: Saved; shared?: b
       <Text style={st.disclaimer}>전통 명리 이론에 기반한 참고용 해석이며, 의학·법률·투자 판단의 근거가 아닙니다.</Text>
       {shared
         ? <Button label="내 사주도 보기" onPress={() => router.replace('/')} />
-        : <Button variant="secondary" label="다른 사주 입력하기" onPress={goToInput} />}
+        : (
+          <>
+            <Button
+              label="다른 사람과 궁합 보기"
+              onPress={async () => {
+                // 이 사주를 "나" 칸에 넣고 궁합 고르기로
+                await saveMatchDraft({ ...(await loadMatchDraft()), a: { profile: saved.profile, options: saved.options } });
+                router.push('/match');
+              }}
+            />
+            <Button variant="secondary" label="다른 사주 입력하기" onPress={goToInput} />
+          </>
+        )}
     </>
   );
 
@@ -393,7 +405,7 @@ function TenGodBar({ chart }: { chart: any }) {
   );
 }
 
-function Interpretation({ report }: { report: Reading['report'] }) {
+export function Interpretation({ report }: { report: Reading['report'] }) {
   const [tab, setTab] = useState(report.categories[0].category);
   const category = report.categories.find(c => c.category === tab)!;
   return (

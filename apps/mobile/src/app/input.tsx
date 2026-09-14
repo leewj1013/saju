@@ -1,11 +1,11 @@
 // SCR-INPUT-01 사주 입력 + SCR-INPUT-02 확인 시트 (PRD §7.1)
 import { useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Button, C, ErrorText, Label, Segmented, Sheet } from '../components/ui';
 import {
   REGIONS, ReadingError, checkDate, checkTime, correctionMin, errorMessage, formatMin, hasLeapMonth, hourSlots,
-  listProfiles, openProfile, regionName, requestReading, saveLast, track,
+  listProfiles, loadMatchDraft, openProfile, regionName, requestReading, saveLast, saveMatchDraft, track,
 } from '../lib/saju';
 import type { ArchivedProfile, Gender, Options, Profile } from '../lib/saju';
 
@@ -29,7 +29,9 @@ export default function InputScreen() {
   const [sheet, setSheet] = useState<'region' | 'hour' | 'confirm' | null>(null);
   const [loading, setLoading] = useState(false);
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
-  const { login } = useLocalSearchParams<{ login?: string }>();
+  // for=a|b: 궁합 고르기에서 사람을 새로 입력하러 온 경우. 결과 화면 대신 궁합 화면으로 돌아간다
+  const { login, for: target } = useLocalSearchParams<{ login?: string; for?: string }>();
+  const matchSide = target === 'a' || target === 'b' ? target : null;
 
   // 대표 사주 (PRD §3.3 홈): 로그인했고 대표를 지정했을 때만. 로그인 전이면 조용히 넘어간다
   const [primary, setPrimary] = useState<ArchivedProfile | null>(null);
@@ -101,9 +103,16 @@ export default function InputScreen() {
     setServerErrors({});
     track('input_submit', { calendar, hourKnown: !timeUnknown });
     try {
-      const reading = await requestReading(profile, { jasiMode, longitudeCorrection });
-      await saveLast({ profile, options: { jasiMode, longitudeCorrection }, reading });
+      const options = { jasiMode, longitudeCorrection };
+      const reading = await requestReading(profile, options); // 궁합 상대여도 서버 검증을 거친다
       setSheet(null);
+      if (matchSide) {
+        await saveMatchDraft({ ...(await loadMatchDraft()), [matchSide]: { profile, options } });
+        if (router.canGoBack()) router.back();
+        else router.replace('/match');
+        return;
+      }
+      await saveLast({ profile, options, reading });
       router.push('/result?from=submit');
     } catch (e) {
       const errors = e instanceof ReadingError ? e.errors : [{ field: null, code: 'SERVER_ERROR' }];
@@ -117,10 +126,11 @@ export default function InputScreen() {
 
   return (
     <KeyboardAvoidingView style={st.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      {matchSide && <Stack.Screen options={{ title: matchSide === 'b' ? '궁합 상대 입력' : '궁합 · 내 사주 입력' }} />}
       <ScrollView contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
         <View style={st.form}>
           {login === 'failed' && <ErrorText>Google 로그인에 실패했습니다. 잠시 뒤 다시 시도해 주세요.</ErrorText>}
-          {primary && (
+          {primary && !matchSide && (
             <View style={st.last}>
               <View style={{ flex: 1, gap: 2 }}>
                 <Text style={st.lastLabel}>대표 사주</Text>
@@ -250,8 +260,12 @@ export default function InputScreen() {
 
           <View style={st.field}>
             <ErrorText>{serverErrors.form}</ErrorText>
-            <Button label="사주 결과 보기" onPress={() => setSheet('confirm')} disabled={!canSubmit} />
-            {!canSubmit && <Text style={[st.helper, st.center]}>성별, 생년월일, 태어난 시간을 입력하면 결과를 볼 수 있어요.</Text>}
+            <Button label={matchSide ? '궁합에 넣기' : '사주 결과 보기'} onPress={() => setSheet('confirm')} disabled={!canSubmit} />
+            {!canSubmit && (
+              <Text style={[st.helper, st.center]}>
+                성별, 생년월일, 태어난 시간을 입력하면 {matchSide ? '궁합에 넣을' : '결과를 볼'} 수 있어요.
+              </Text>
+            )}
           </View>
         </View>
       </ScrollView>
@@ -299,7 +313,9 @@ export default function InputScreen() {
         </View>
         <View style={st.row}>
           <View style={st.grow}><Button variant="secondary" label="수정" onPress={() => setSheet(null)} /></View>
-          <View style={st.grow}><Button label="운세 보기" onPress={submit} loading={loading} loadingLabel="결과를 만드는 중…" /></View>
+          <View style={st.grow}>
+            <Button label={matchSide ? '이 사람으로 고르기' : '운세 보기'} onPress={submit} loading={loading} loadingLabel={matchSide ? '확인하는 중…' : '결과를 만드는 중…'} />
+          </View>
         </View>
       </Sheet>
     </KeyboardAvoidingView>

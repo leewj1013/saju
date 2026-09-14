@@ -4,7 +4,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Button, C, Chip, ErrorText } from '../components/ui';
 import {
-  ReadingError, TAGS, deleteProfile, errorMessage, listProfiles, openProfile, regionName, saveLast, startGoogleLogin, tagLabel, updateProfile,
+  ReadingError, TAGS, deleteProfile, errorMessage, listProfiles, loadMatchDraft, openProfile, personOf, regionName, relationOfTag,
+  saveLast, saveMatchDraft, startGoogleLogin, tagLabel, updateProfile,
 } from '../lib/saju';
 import type { ArchivedProfile, Tag } from '../lib/saju';
 
@@ -117,6 +118,13 @@ export default function ArchiveScreen() {
 
   const { profiles, limit } = state;
   const shown = filter === 'ALL' ? profiles : profiles.filter(p => p.tag === filter);
+  // 이 사주를 "상대"로 궁합 보기. "나"는 대표 사주 (대표가 없거나 이 사주면 고르던 값 유지), 관계는 태그로
+  const matchWith = async (p: ArchivedProfile) => {
+    const draft = await loadMatchDraft();
+    const primary = profiles.find(x => x.isPrimary && x.profileId !== p.profileId);
+    await saveMatchDraft({ a: primary ? personOf(primary) : draft.a, b: personOf(p), relation: relationOfTag(p.tag) ?? draft.relation });
+    router.push('/match');
+  };
   const filterOptions = [
     { value: 'ALL' as const, label: `전체 ${profiles.length}` },
     ...TAGS.map(t => ({ value: t.code, label: `${t.label} ${profiles.filter(p => p.tag === t.code).length}` })),
@@ -200,6 +208,7 @@ export default function ArchiveScreen() {
                       <View style={st.grow}>
                         <Button label="열기" onPress={() => open(p.profileId)} loading={busy && !editing} loadingLabel="여는 중…" />
                       </View>
+                      <Button variant="secondary" label="궁합" onPress={() => matchWith(p)} disabled={busy} />
                       <Button
                         variant="secondary" label={editing ? '닫기' : '태그·대표'}
                         onPress={() => setEditId(editing ? null : p.profileId)} disabled={busy}

@@ -42,6 +42,30 @@ test('입력 오류는 필드별 코드로, 형식이 틀린 본문은 BODY_INVA
   assert.deepEqual(shape.json(), { errors: [{ field: null, code: 'BODY_INVALID' }] });
 });
 
+test('POST /v1/matches: 두 사람 궁합 · 관계별 탭 · 입력 오류는 사람별 필드', async () => {
+  const app = server();
+  const b = body({ name: '김서연', gender: 'F', birthDate: '1992-05-05', birthTime: '09:00' });
+  const match = (payload: object) => app.inject({ method: 'POST', url: '/v1/matches', payload });
+
+  const res = await match({ a: body(), b, relation: 'PARTNER' });
+  assert.equal(res.statusCode, 200);
+  const m = res.json();
+  assert.equal(m.a.chart.pillars.day.stem, 'BYEONG');
+  assert.ok(m.match.score >= 40 && m.match.score <= 98);
+  assert.deepEqual(m.report.categories.map((c: { category: string }) => c.category), ['MATCH_TOTAL', 'MATCH_PERSONALITY', 'MATCH_LOVE', 'MATCH_CONFLICT']);
+  assert.match(m.report.categories[0].sections[0].items[0].text, /^홍길동님과 김서연님의 궁합은/);
+  assert.doesNotMatch(res.body, /ruleCode|isFallback|trace/);
+
+  const family = await match({ a: body(), b, relation: 'FAMILY' });
+  assert.deepEqual(family.json().report.categories.map((c: { category: string }) => c.category), ['MATCH_TOTAL', 'MATCH_PERSONALITY', 'MATCH_BOND', 'MATCH_CONFLICT']);
+
+  const bad = await match({ a: body({ birthTime: '25:00' }), b: body({ birthDate: '1990-02-30' }), relation: 'PARTNER' });
+  assert.equal(bad.statusCode, 400);
+  assert.deepEqual(bad.json(), { errors: [{ field: 'a.birthTime', code: 'TIME_INVALID' }, { field: 'b.birthDate', code: 'DATE_NOT_EXIST' }] });
+
+  assert.equal((await match({ a: body(), b, relation: 'BOSS' })).statusCode, 400);
+});
+
 test('CORS preflight', async () => {
   const res = await server().inject({ method: 'OPTIONS', url: '/v1/readings' });
   assert.equal(res.statusCode, 204);
