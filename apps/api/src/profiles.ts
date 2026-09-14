@@ -22,6 +22,8 @@ const PATCH_BODY = {
 };
 
 const SHARE_DAYS = 30;
+const PENDING_MS = 30 * 60_000;
+const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('base64url');
 const SHARE_BODY = {
   type: 'object',
   required: ['hideBirth'],
@@ -92,6 +94,7 @@ export function registerProfiles(app: FastifyInstance, deps: {
   userIdOf: (req: FastifyRequest) => string | null;
   buildReading: (profile: ProfileInput, options: SajuOptions) => Reading;
   bodySchema: object;
+  guestLimiter: (req: FastifyRequest, reply: FastifyReply) => Promise<unknown>; // 로그인 없이 쓰는 경로의 IP당 요청 제한
   now: () => number;
 }) {
   const { db, userIdOf, now } = deps;
@@ -139,17 +142,21 @@ export function registerProfiles(app: FastifyInstance, deps: {
     return { limit: ARCHIVE_LIMIT, profiles: rows.map(summarize) };
   });
 
-  app.post('/v1/profiles', { schema: { body: deps.bodySchema } }, async (req, reply) => {
-    const userId = userIdOf(req);
-    if (!userId) return error(reply, 401, 'UNAUTHORIZED');
+  // 요청 본문에서 저장할 항목만 꺼낸다 (스키마에 없는 값은 버림)
+  const pick = (body: { profile: ProfileInput; options: SajuOptions }) => ({
+    profile: {
+      name: body.profile.name ?? '', gender: body.profile.gender, calendar: body.profile.calendar, isLeapMonth: !!body.profile.isLeapMonth,
+      birthDate: body.profile.birthDate, birthTime: body.profile.birthTime ?? null, regionCode: body.profile.regionCode ?? '11',
+    } as ProfileInput,
+    options: { jasiMode: body.options.jasiMode, longitudeCorrection: body.options.longitudeCorrection } as SajuOptions,
+  });
 
-    const body = req.body as { profile: ProfileInput; options: SajuOptions };
-    const profile = body.profile;
-    const options: SajuOptions = { jasiMode: body.options.jasiMode, longitudeCorrection: body.options.longitudeCorrection };
+  /** 보관함에 저장. 같은 사주면 계산 방식만 갱신. 반환: 201 새로 저장 · 200 이미 있음 · 400 입력 오류 · 409 가득 참 */
+  const saveFor = (userId: string, profile: ProfileInput, options: SajuOptions): { status: number; body: any } => {
     try {
       calculate(profile, options, now()); // 저장 전에 입력 검증
     } catch (e) {
-      if (e instanceof SajuInputError) return reply.code(400).send({ errors: e.errors });
+      if (e instanceof SajuInputError) return { status: 400, body: { errors: e.errors } };
       throw e;
     }
 
@@ -157,11 +164,11 @@ export function registerProfiles(app: FastifyInstance, deps: {
     const existing = db.prepare('SELECT * FROM saju_profile WHERE user_id = ? AND input_hash = ?').get(userId, hash) as Row | undefined;
     if (existing) {
       db.prepare('UPDATE saju_profile SET options = ? WHERE profile_id = ?').run(JSON.stringify(options), existing.profile_id);
-      return reply.code(200).send({ created: false, profile: summarize({ ...existing, options: JSON.stringify(options) }) });
+      return { status: 200, body: { created: false, profile: summarize({ ...existing, options: JSON.stringify(options) }) } };
     }
 
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM saju_profile WHERE user_id = ?').get(userId) as { n: number };
-    if (n >= ARCHIVE_LIMIT) return error(reply, 409, 'ARCHIVE_FULL');
+    if (n >= ARCHIVE_LIMIT) return { status: 409, body: { errors: [{ field: null, code: 'ARCHIVE_FULL' }] } };
 
     const profileId = crypto.randomUUID();
     const name = profile.name?.trim();
@@ -172,7 +179,51 @@ export function registerProfiles(app: FastifyInstance, deps: {
       profile.gender, profile.regionCode ?? '11', JSON.stringify(options),
     );
     const row = db.prepare('SELECT * FROM saju_profile WHERE profile_id = ?').get(profileId) as Row;
-    return reply.code(201).send({ created: true, profile: summarize(row) });
+    return { status: 201, body: { created: true, profile: summarize(row) } };
+  };
+
+  app.post('/v1/profiles', { schema: { body: deps.bodySchema } }, async (req, reply) => {
+    const userId = userIdOf(req);
+    if (!userId) return error(reply, 401, 'UNAUTHORIZED');
+    const { profile, options } = pick(req.body as { profile: ProfileInput; options: SajuOptions });
+    const r = saveFor(userId, profile, options);
+    return reply.code(r.status).send(r.body);
+  });
+
+  // 비회원 결과를 로그인 뒤 보관함으로 옮기기 (PRD §3.3). 로그인 도중 브라우저가 바뀌어도(카카오톡 → Chrome) 이어지도록
+  // 입력을 30분 동안 암호화해 맡기고, 추측할 수 없는 토큰만 로그인 뒤 돌아올 주소에 싣는다
+  app.post('/v1/pending-saves', { schema: { body: deps.bodySchema }, preHandler: deps.guestLimiter }, async (req, reply) => {
+    const { profile, options } = pick(req.body as { profile: ProfileInput; options: SajuOptions });
+    try {
+      calculate(profile, options, now());
+    } catch (e) {
+      if (e instanceof SajuInputError) return reply.code(400).send({ errors: e.errors });
+      throw e;
+    }
+    const token = crypto.randomBytes(24).toString('base64url');
+    db.prepare('DELETE FROM pending_save WHERE expires_at <= ?').run(new Date(now()).toISOString());
+    db.prepare('INSERT INTO pending_save (token_hash, data_enc, expires_at) VALUES (?, ?, ?)')
+      .run(sha256(token), seal(keys.enc, JSON.stringify({ profile, options })), new Date(now() + PENDING_MS).toISOString());
+    return reply.code(201).send({ token });
+  });
+
+  // 로그인한 사용자가 맡긴 결과를 가져가 보관함에 저장한다. 한 번 가져가면 지운다. 보관함이 가득 차도 결과는 돌려준다
+  app.post('/v1/pending-saves/:token/claim', async (req, reply) => {
+    const userId = userIdOf(req);
+    if (!userId) return error(reply, 401, 'UNAUTHORIZED');
+    const hash = sha256((req.params as { token: string }).token);
+    const row = db.prepare('SELECT data_enc FROM pending_save WHERE token_hash = ? AND expires_at > ?')
+      .get(hash, new Date(now()).toISOString()) as { data_enc: Uint8Array } | undefined;
+    if (!row) return error(reply, 404, 'PENDING_EXPIRED');
+    db.prepare('DELETE FROM pending_save WHERE token_hash = ?').run(hash);
+
+    const { profile, options } = JSON.parse(unseal(keys.enc, row.data_enc)) as { profile: ProfileInput; options: SajuOptions };
+    const r = saveFor(userId, profile, options);
+    if (r.status === 400) return reply.code(400).send(r.body);
+    return {
+      result: r.status === 201 ? 'created' : r.status === 200 ? 'existing' : 'full',
+      saved: { profile, options, reading: deps.buildReading(profile, options) },
+    };
   });
 
   app.get('/v1/profiles/:id', async (req, reply) => {

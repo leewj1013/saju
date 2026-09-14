@@ -905,6 +905,8 @@ MVP 합계 약 **216 룰 × 평균 2 변형 ≈ 430 문장**.
 | POST | `/v1/auth/logout` | 회원 | 이 기기 세션 삭제 |
 | GET | `/v1/profiles` | 회원 | 보관함 목록 (최대 50): 이름·출생 정보·일주·현재 대운 |
 | POST | `/v1/profiles` | 회원 | 사주 저장. 같은 사주면 새로 만들지 않고 계산 방식만 갱신 (201 / 200, 가득 차면 409 `ARCHIVE_FULL`) |
+| POST | `/v1/pending-saves` | 없음 | 비회원 "로그인하고 저장": 입력을 30분 암호화해 맡기고 `{token}` (토큰은 해시만 저장). 로그인 뒤 돌아올 주소 `/result?claim=토큰` |
+| POST | `/v1/pending-saves/{token}/claim` | 회원 | 맡긴 결과를 보관함에 저장하고 `{result: created · existing · full, saved}` 반환. 한 번만, 만료는 404 `PENDING_EXPIRED`. 로그인 도중 브라우저가 바뀌어도(카카오톡 → Chrome) 이어짐 |
 | GET | `/v1/profiles/{id}` | 회원 | 저장한 사주 열기: 현재 발행 룰 세트로 다시 계산한 결과 |
 | DELETE | `/v1/profiles/{id}` | 회원 | 삭제 (남의 사주는 404) |
 | PATCH | `/v1/profiles/{id}` | 회원 | `{ tag?, isPrimary? }` 태그(`SELF` 본인 · `FAMILY` 가족 · `FRIEND` 친구 · `PARTNER` 연인 · `OTHER` 기타 · `null` 없음) · 대표 지정. 대표는 사용자당 하나 — 새로 지정하면 기존 대표 해제, 목록 맨 위 |

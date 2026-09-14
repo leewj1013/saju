@@ -51,6 +51,7 @@ const MESSAGES: Record<string, string> = {
   UNAUTHORIZED: '로그인이 필요합니다.',
   ARCHIVE_FULL: '보관함이 가득 찼습니다(최대 50개). 안 보는 사주를 지운 뒤 다시 저장해 주세요.',
   NOT_FOUND: '보관함에서 찾을 수 없는 사주입니다. 목록을 새로 불러와 주세요.',
+  PENDING_EXPIRED: '로그인하는 동안 시간이 오래 지나 결과를 가져오지 못했어요. 사주 정보를 다시 입력해 주세요.',
 };
 export const errorMessage = (code: string) => MESSAGES[code] ?? '결과를 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요.';
 
@@ -156,6 +157,11 @@ export const sameSaju = (a: Profile, b: Profile) =>
   && (a.birthTime ?? null) === (b.birthTime ?? null) && (a.regionCode ?? '11') === (b.regionCode ?? '11');
 export const saveProfile = (profile: Profile, options: Options) =>
   api<{ created: boolean; profile: ArchivedProfile }>('/v1/profiles', { method: 'POST', body: JSON.stringify({ profile, options }) });
+// 비회원 결과를 로그인 뒤 보관함으로 옮기기: 로그인 도중 브라우저가 바뀌어도(카카오톡 → Chrome) 이어지게 서버에 30분 맡긴다
+export const createPendingSave = (profile: Profile, options: Options) =>
+  api<{ token: string }>('/v1/pending-saves', { method: 'POST', body: JSON.stringify({ profile, options }) });
+export const claimPendingSave = (token: string) =>
+  api<{ result: 'created' | 'existing' | 'full'; saved: Saved }>(`/v1/pending-saves/${encodeURIComponent(token)}/claim`, { method: 'POST' });
 export const openProfile = (profileId: string) =>
   api<{ profile: Profile; options: Options; reading: Reading }>(`/v1/profiles/${encodeURIComponent(profileId)}`);
 // 공유 링크 (PRD §7.3): 회원이 보관함 사주로 만들고, 받은 사람은 로그인 없이 연다. 30일 뒤 만료

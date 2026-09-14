@@ -76,6 +76,16 @@ const EVENT_BODY = {
   },
 };
 
+/**
+ * 로그에 남기지 않을 값: 로그인 콜백의 인가 코드 · state, 로그인 시작의 돌아올 주소, 맡긴 결과를 가져가는 토큰.
+ * 토큰은 로그인 뒤 돌아올 주소(/result?claim=…)에도 실려 오므로 경로 · 쿼리 모두 가린다
+ */
+export function redactUrl(url: string) {
+  if (url.startsWith('/v1/pending-saves/')) return '/v1/pending-saves/[생략]/claim';
+  if (url.startsWith('/v1/auth/google/') || url.includes('claim=')) return `${url.split('?')[0]}?[생략]`;
+  return url;
+}
+
 export function cleanEventProps(name: string, props: Record<string, unknown> = {}) {
   return Object.fromEntries(
     (EVENT_PROPS[name] ?? [])
@@ -110,7 +120,7 @@ export function buildServer({
       serializers: {
         req: req => ({
           method: req.method,
-          url: req.url.startsWith('/v1/auth/google/callback') ? '/v1/auth/google/callback?[생략]' : req.url,
+          url: redactUrl(req.url),
           host: req.headers.host,
           remoteAddress: req.ip,
         }),
@@ -250,7 +260,7 @@ export function buildServer({
   });
 
   if (auth && dataKey) {
-    registerProfiles(app, { db: db!, dataKey, userIdOf: auth.userIdOf, buildReading, bodySchema: READING_BODY, now });
+    registerProfiles(app, { db: db!, dataKey, userIdOf: auth.userIdOf, buildReading, bodySchema: READING_BODY, guestLimiter: limiter(rateLimitPerMin), now });
   }
 
   if (webRoot) {

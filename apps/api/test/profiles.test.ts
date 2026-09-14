@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { buildServer } from '../src/server.ts';
+import { buildServer, redactUrl } from '../src/server.ts';
 import { openDb } from '../src/db.ts';
 import { loadRuleSet } from '../src/rules/authoring.ts';
 import { SESSION_COOKIE } from '../src/auth.ts';
@@ -209,6 +209,52 @@ test('공유 링크: 회원만 만들고 · 로그인 없이 열람 · 생년월
   await app.inject({ method: 'DELETE', url: `/v1/profiles/${profile.profileId}`, headers });
   assert.equal((await app.inject({ url: `/v1/share/${shown.json().token}` })).statusCode, 404);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM share_link').get() as { n: number }).n, 0);
+});
+
+test('비회원 결과 이어서 저장: 맡기기(로그인 불필요) → 로그인 뒤 가져가기 · 한 번만 · 만료 · 암호화', async () => {
+  const { app, db, loginAs, count } = setup();
+  const deposit = (profile: object = {}) => app.inject({ method: 'POST', url: '/v1/pending-saves', payload: body(profile) });
+  const claim = (token: string, headers: object = {}) => app.inject({ method: 'POST', url: `/v1/pending-saves/${token}/claim`, headers });
+
+  const pending = await deposit();
+  assert.equal(pending.statusCode, 201);
+  const { token } = pending.json();
+  assert.match(token, /^[A-Za-z0-9_-]{32}$/);
+  const stored = db.prepare('SELECT * FROM pending_save').get() as { token_hash: string; data_enc: Uint8Array };
+  assert.notEqual(stored.token_hash, token); // 토큰은 해시만
+  for (const plain of ['홍길동', '1990-01-01']) assert.equal(Buffer.from(stored.data_enc).includes(Buffer.from(plain)), false, plain);
+
+  assert.equal((await claim(token)).statusCode, 401);
+  const headers = loginAs('user-a');
+  const res = await claim(token, headers);
+  assert.equal(res.statusCode, 200);
+  const r = res.json();
+  assert.equal(r.result, 'created');
+  assert.equal(r.saved.profile.name, '홍길동');
+  assert.deepEqual(r.saved.reading.chart.pillars.day, { stem: 'BYEONG', branch: 'IN' });
+  assert.equal(count(), 1);
+  assert.equal((await claim(token, headers)).statusCode, 404); // 한 번만
+
+  // 이미 보관함에 있는 사주는 existing (새로 만들지 않음)
+  assert.equal((await claim((await deposit()).json().token, headers)).json().result, 'existing');
+  assert.equal(count(), 1);
+
+  // 30분이 지나면 가져갈 수 없다
+  const late = (await deposit({ birthDate: '1991-01-01' })).json().token;
+  db.prepare('UPDATE pending_save SET expires_at = ?').run(new Date(NOW - 1).toISOString());
+  const expired = await claim(late, headers);
+  assert.equal(expired.statusCode, 404);
+  assert.deepEqual(expired.json(), { errors: [{ field: null, code: 'PENDING_EXPIRED' }] });
+
+  assert.equal((await deposit({ birthDate: '1990-02-30' })).statusCode, 400);
+});
+
+test('로그에서 가리는 주소: 로그인 콜백 · 시작, 맡긴 결과 토큰', () => {
+  assert.equal(redactUrl('/v1/auth/google/callback?code=abc&state=x'), '/v1/auth/google/callback?[생략]');
+  assert.equal(redactUrl('/v1/auth/google/start?returnTo=%2Fresult%3Fclaim%3Dtok'), '/v1/auth/google/start?[생략]');
+  assert.equal(redactUrl('/v1/pending-saves/tok123/claim'), '/v1/pending-saves/[생략]/claim');
+  assert.equal(redactUrl('/result?claim=tok123'), '/result?[생략]');
+  assert.equal(redactUrl('/v1/readings'), '/v1/readings');
 });
 
 test('암호화: 원래 값으로 복호화되고, 변조 · 다른 키 · 잘못된 키 길이는 실패', () => {

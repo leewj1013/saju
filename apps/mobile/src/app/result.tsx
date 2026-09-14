@@ -5,7 +5,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimen
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, C, Chip, ErrorText, OH } from '../components/ui';
 import {
-  ELEMENTS, ELEMENT_HANJA, LABELS, ReadingError, branchInfo, createShare, errorMessage, fetchMe, listProfiles, loadLast, loadMatchDraft, requestReading, sameSaju, saveLast, saveMatchDraft,
+  ELEMENTS, ELEMENT_HANJA, LABELS, ReadingError, branchInfo, claimPendingSave, createPendingSave, createShare, errorMessage, fetchMe, listProfiles, loadLast, loadMatchDraft, requestReading, sameSaju, saveLast, saveMatchDraft,
   saveProfile, seoulToday, startGoogleLogin, stemInfo, track, zodiac,
 } from '../lib/saju';
 import type { Me, Reading, Saved } from '../lib/saju';
@@ -17,12 +17,34 @@ const LUCK_CARD_W = 92;
 
 const goToInput = () => (router.canGoBack() ? router.back() : router.replace('/input'));
 
+export type Claim = { result?: 'created' | 'existing' | 'full'; error?: string };
+
 export default function ResultScreen() {
   const [saved, setSaved] = useState<Saved | null | undefined>(undefined);
-  const { from } = useLocalSearchParams<{ from?: string }>();
+  const [claim, setClaim] = useState<Claim>({});
+  const { from, claim: token } = useLocalSearchParams<{ from?: string; claim?: string }>();
 
   useEffect(() => {
-    loadLast().then(s => {
+    (async () => {
+      // 비회원일 때 "로그인하고 저장"을 누르고 돌아온 경우: 맡겨 둔 결과를 보관함에 저장하고 연다 (다른 브라우저로 돌아와도 됨)
+      if (token) {
+        // 주소창에 토큰을 남기지 않는다 (한 번 쓰면 무효라 새로고침해도 재사용되지는 않음).
+        // 첫 렌더 중에는 라우터가 준비되지 않아 오류가 나므로 응답을 받은 뒤에 지운다
+        const forget = () => { try { router.setParams({ claim: undefined }); } catch {} };
+        try {
+          const r = await claimPendingSave(token).finally(forget);
+          await saveLast(r.saved);
+          setClaim({ result: r.result });
+          setSaved(r.saved);
+          track('save', { created: r.result === 'created', afterLogin: true });
+          track('result_view', { source: 'login' });
+          return;
+        } catch (e) {
+          setClaim({ error: errorMessage(e instanceof ReadingError ? e.errors[0]?.code : 'SERVER_ERROR') });
+        }
+      }
+
+      const s = await loadLast();
       setSaved(s);
       if (!s) return;
       track('result_view', { source: from === 'submit' || from === 'archive' ? from : 'recent' });
@@ -36,7 +58,7 @@ export default function ResultScreen() {
           })
           .catch(() => {});
       }
-    });
+    })();
   }, []);
 
   if (saved === undefined) return <View style={st.screen} />;
@@ -44,23 +66,24 @@ export default function ResultScreen() {
     return (
       <View style={[st.screen, st.empty]}>
         <Text style={st.h2}>아직 본 사주가 없습니다</Text>
+        <ErrorText>{claim.error}</ErrorText>
         <Button label="사주 정보 입력하기" onPress={() => router.replace('/input')} />
       </View>
     );
   }
 
-  return <ResultBody saved={saved} />;
+  return <ResultBody saved={saved} claim={claim} />;
 }
 
 /** 결과 화면 본문. shared = 공유 링크로 연 남의 결과 (수정 · 저장 · 공유 없음, 내 사주 보기로 유도) */
-export function ResultBody({ saved, shared = false }: { saved: Saved; shared?: boolean }) {
+export function ResultBody({ saved, shared = false, claim = {} }: { saved: Saved; shared?: boolean; claim?: Claim }) {
   const { width } = useWindowDimensions();
   const { chart, report } = saved.reading;
   const left = (
     <>
       <Header saved={saved} shared={shared} />
       <Summary reading={saved.reading} />
-      {!shared && <SaveToArchive saved={saved} />}
+      {!shared && <SaveToArchive saved={saved} claim={claim} />}
       <ChartTable saved={saved} />
       <OhaengBars chart={chart} />
       <TenGodBar chart={chart} />
@@ -106,13 +129,14 @@ export function ResultBody({ saved, shared = false }: { saved: Saved; shared?: b
 }
 
 /**
- * 보관함에 저장 (웹). 로그인 전이면 Google 로그인 후 /result?save=1 로 돌아와 이 결과를 이어서 저장한다.
- * 비회원 결과는 서버에 두지 않고, 로그인 전 "저장" 의도를 이어받는 방식으로 계정에 옮긴다.
+ * 보관함에 저장 (웹). 비회원이면 결과를 서버에 30분 맡기고 Google 로그인 → /result?claim=토큰 으로 돌아와 저장한다.
+ * 로그인 도중 브라우저가 바뀌어도(카카오톡 → Chrome) 다시 입력하지 않게 하려는 것 (ResultScreen이 가져온 결과를 claim으로 넘김)
  */
-function SaveToArchive({ saved }: { saved: Saved }) {
-  const { save } = useLocalSearchParams<{ save?: string }>();
-  const [status, setStatus] = useState<'idle' | 'saving' | 'created' | 'existing'>('idle');
-  const [error, setError] = useState<string>();
+function SaveToArchive({ saved, claim }: { saved: Saved; claim: Claim }) {
+  const [status, setStatus] = useState<'idle' | 'saving' | 'created' | 'existing'>(
+    claim.result === 'created' ? 'created' : claim.result === 'existing' ? 'existing' : 'idle',
+  );
+  const [error, setError] = useState<string | undefined>(claim.result === 'full' ? errorMessage('ARCHIVE_FULL') : claim.error);
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   useEffect(() => {
     fetchMe().then(user => {
@@ -128,30 +152,34 @@ function SaveToArchive({ saved }: { saved: Saved }) {
   }, []);
   const guest = me === null; // 확인 중(undefined)에는 로그인 문구를 먼저 보여 주지 않도록 비회원 판정은 null일 때만
 
-  const run = async (afterLogin: boolean) => {
+  const codeOf = (e: unknown) => (e instanceof ReadingError ? e.errors[0]?.code : 'SERVER_ERROR');
+
+  // 비회원(또는 세션 만료): 결과를 맡기고 로그인으로
+  const loginAndSave = async () => {
+    setStatus('saving');
+    setError(undefined);
+    try {
+      const { token } = await createPendingSave(saved.profile, saved.options);
+      startGoogleLogin(`/result?claim=${encodeURIComponent(token)}`);
+    } catch (e) {
+      setError(errorMessage(codeOf(e)));
+    }
+    setStatus('idle');
+  };
+
+  const run = async () => {
     setStatus('saving');
     setError(undefined);
     try {
       const { created } = await saveProfile(saved.profile, saved.options);
       setStatus(created ? 'created' : 'existing');
-      track('save', { created, afterLogin });
+      track('save', { created, afterLogin: false });
     } catch (e) {
-      const code = e instanceof ReadingError ? e.errors[0]?.code : 'SERVER_ERROR';
-      if (code === 'UNAUTHORIZED' && !afterLogin) {
-        startGoogleLogin('/result?save=1');
-        setStatus('idle');
-        return;
-      }
+      if (codeOf(e) === 'UNAUTHORIZED') return loginAndSave();
       setStatus('idle');
-      setError(errorMessage(code));
+      setError(errorMessage(codeOf(e)));
     }
   };
-
-  useEffect(() => {
-    if (save !== '1') return;
-    router.setParams({ save: undefined }); // 새로고침해도 다시 저장하지 않게 (다시 보내도 중복 저장은 안 됨)
-    run(true);
-  }, []);
 
   if (Platform.OS !== 'web') return null;
   const done = status === 'created' || status === 'existing';
@@ -162,9 +190,9 @@ function SaveToArchive({ saved }: { saved: Saved }) {
         {done ? (
           <Button size="sm" variant="secondary" label="보관함 보기" onPress={() => router.push('/archive')} />
         ) : guest ? (
-          <Button size="sm" label="Google 로그인하고 저장" onPress={() => startGoogleLogin('/result?save=1')} />
+          <Button size="sm" label="Google 로그인하고 저장" onPress={loginAndSave} loading={status === 'saving'} loadingLabel="로그인으로 이동 중…" />
         ) : (
-          <Button size="sm" label="보관함에 저장" onPress={() => run(false)} loading={status === 'saving'} loadingLabel="저장 중…" />
+          <Button size="sm" label="보관함에 저장" onPress={run} loading={status === 'saving'} loadingLabel="저장 중…" />
         )}
       </View>
       <Text style={st.meta} accessibilityLiveRegion="polite">
