@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.expo
+**/*.log
+**/.env*
+apps/api/out
+apps/api/var
+apps/mobile/.claude
+.claude
+docs

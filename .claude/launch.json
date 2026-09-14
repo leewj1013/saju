@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "apps/api", "run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "apps/mobile", "run", "web", "--", "--port", "8081"],
+      "port": 8081
+    },
+    {
+      "name": "beta-local",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--env-file-if-exists=apps/api/.env", "--env-file=apps/api/beta-local.env", "apps/api/src/server.ts"],
+      "port": 3200
+    }
+  ]
+}

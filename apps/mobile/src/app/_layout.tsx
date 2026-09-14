@@ -1,0 +1,75 @@
+import { useEffect, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Stack, router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { C } from '../components/ui';
+import { clearLast, fetchMe, logout, startGoogleLogin } from '../lib/saju';
+import type { Me } from '../lib/saju';
+
+// 웹: 스크린 리더가 한국어로 읽도록. 단일 페이지 출력은 +html.tsx가 적용되지 않아(export 결과 lang="en") 여기서 지정
+if (Platform.OS === 'web') document.documentElement.lang = 'ko';
+
+/** 헤더 오른쪽: 로그인 전 "Google로 로그인", 로그인 후 "보관함 · 로그아웃" (웹만) */
+function Account() {
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  useEffect(() => {
+    fetchMe().then(setMe);
+  }, []);
+
+  if (Platform.OS !== 'web' || me === undefined) return null;
+  if (!me) {
+    return (
+      <Pressable
+        accessibilityRole="button" accessibilityLabel="Google로 로그인" hitSlop={8} style={s.button}
+        onPress={() => startGoogleLogin(window.location.pathname + window.location.search)}
+      >
+        <Text style={s.text}>Google로 로그인</Text>
+      </Pressable>
+    );
+  }
+  return (
+    <View style={s.row}>
+      <Pressable accessibilityRole="button" accessibilityLabel="사주 보관함" hitSlop={8} style={s.button} onPress={() => router.push('/archive')}>
+        <Text style={s.text}>보관함</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button" accessibilityLabel="로그아웃" hitSlop={8} style={s.button}
+        onPress={async () => { await logout(); await clearLast(); setMe(null); router.replace('/login'); }}
+      >
+        <Text style={[s.text, s.muted]}>로그아웃</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <>
+      <StatusBar style="dark" />
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: C.surface },
+          headerTintColor: C.ink,
+          headerTitleStyle: { fontWeight: '600' },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: C.ground },
+          headerRight: () => <Account />,
+        }}
+      >
+        <Stack.Screen name="index" options={{ headerShown: false, title: '사주', animation: 'fade' }} />
+        <Stack.Screen name="login" options={{ headerShown: false, title: '로그인', animation: 'fade' }} />
+        <Stack.Screen name="input" options={{ title: '사주 정보 입력' }} />
+        <Stack.Screen name="result" options={{ title: '사주 결과' }} />
+        <Stack.Screen name="archive" options={{ title: '사주 보관함' }} />
+        <Stack.Screen name="s/[token]" options={{ title: '공유된 사주' }} />
+      </Stack>
+    </>
+  );
+}
+
+const s = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center' },
+  button: { minHeight: 44, paddingHorizontal: 12, justifyContent: 'center' },
+  text: { fontSize: 14, fontWeight: '600', color: C.ink },
+  muted: { color: C.ink2, fontWeight: '500' },
+});

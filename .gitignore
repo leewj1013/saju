@@ -1,0 +1,13 @@
+# 비밀 값: Google 키 · 세션 서명 키 · 암호화 키 (배포 값은 Railway Variables에 직접 입력)
+.env
+.env.*
+
+node_modules/
+*.log
+.DS_Store
+
+# 로컬 DB · 빌드 결과
+apps/api/var/
+apps/api/out/
+apps/mobile/dist/
+.claude/settings.local.json
