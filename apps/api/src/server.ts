@@ -225,9 +225,11 @@ export function buildServer({
     });
     const sendIndex = (reply: FastifyReply) => reply.header('Cache-Control', 'no-cache').type('text/html; charset=utf-8').send(indexHtml);
     app.get('/', (req, reply) => sendIndex(reply)); // index: false라 정적 처리기는 /를 폴더 접근(403)으로 거절한다
-    // /result 같은 앱 경로를 새로고침해도 웹 앱이 뜨도록 index.html로 보낸다
+    // /result 같은 앱 경로를 새로고침해도 웹 앱이 뜨도록 index.html로 보낸다.
+    // Accept 헤더로 거르지 않는다: 카카오톡 · 페이스북 미리보기 수집기는 Accept: */* 로 와서 미리보기 정보를 못 읽었다.
+    // 확장자가 있는 경로(없는 이미지 · 번들 파일)는 HTML 대신 404
     app.setNotFoundHandler((req, reply) => {
-      if (req.method === 'GET' && !req.url.startsWith('/v1/') && req.headers.accept?.includes('text/html')) {
+      if (req.method === 'GET' && !req.url.startsWith('/v1/') && !/\.\w+$/.test(req.url.split('?')[0])) {
         if (req.url.startsWith('/s/')) reply.header('X-Robots-Tag', 'noindex, nofollow'); // 공유 결과는 검색에 노출하지 않는다
         return sendIndex(reply);
       }
@@ -246,7 +248,12 @@ if (import.meta.main) {
   const errors = [...content.problems, ...validateRuleSet(content.ruleSet)];
   if (errors.length) throw new Error(`룰 세트 검증 실패\n${errors.join('\n')}`);
 
-  const db = openDb(env.DATABASE_PATH ? path.resolve(env.DATABASE_PATH) : path.resolve(import.meta.dirname, '../var/saju.db'));
+  const dbPath = env.DATABASE_PATH ? path.resolve(env.DATABASE_PATH) : path.resolve(import.meta.dirname, '../var/saju.db');
+  const dbExisted = fs.existsSync(dbPath);
+  const db = openDb(dbPath);
+  // 배포에서 시작할 때마다 "새로 만듦"이면 영구 디스크가 연결되지 않은 것: 재배포 · 재시작마다 로그인 · 보관함이 사라진다
+  const { n: users } = db.prepare('SELECT COUNT(*) AS n FROM app_user').get() as { n: number };
+  console.log(`DB ${dbPath}: ${dbExisted ? '기존 파일 사용' : '새로 만듦'} · 사용자 ${users}명`);
   publishRuleSet(db, { ...content.ruleSet, version: versionOf(content.ruleSet) });
   const ruleSet = loadPublishedRuleSet(db)!;
   const production = env.NODE_ENV === 'production';

@@ -138,6 +138,11 @@ export type ArchivedProfile = Profile & {
 export const updateProfile = (profileId: string, patch: { tag?: Tag | null; isPrimary?: boolean }) =>
   api<{ profile: ArchivedProfile }>(`/v1/profiles/${encodeURIComponent(profileId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
 export const listProfiles = () => api<{ limit: number; profiles: ArchivedProfile[] }>('/v1/profiles');
+/** 같은 사주인가: 서버의 중복 판단(input_hash)과 같은 항목으로 비교 (계산 방식은 제외) */
+export const sameSaju = (a: Profile, b: Profile) =>
+  (a.name ?? '').trim() === (b.name ?? '').trim() && a.gender === b.gender && a.calendar === b.calendar
+  && !!a.isLeapMonth === !!b.isLeapMonth && a.birthDate === b.birthDate
+  && (a.birthTime ?? null) === (b.birthTime ?? null) && (a.regionCode ?? '11') === (b.regionCode ?? '11');
 export const saveProfile = (profile: Profile, options: Options) =>
   api<{ created: boolean; profile: ArchivedProfile }>('/v1/profiles', { method: 'POST', body: JSON.stringify({ profile, options }) });
 export const openProfile = (profileId: string) =>

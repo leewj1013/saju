@@ -5,7 +5,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimen
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, C, Chip, ErrorText, OH } from '../components/ui';
 import {
-  ELEMENTS, ELEMENT_HANJA, LABELS, ReadingError, branchInfo, createShare, errorMessage, fetchMe, loadLast, requestReading, saveLast,
+  ELEMENTS, ELEMENT_HANJA, LABELS, ReadingError, branchInfo, createShare, errorMessage, fetchMe, listProfiles, loadLast, requestReading, sameSaju, saveLast,
   saveProfile, seoulToday, startGoogleLogin, stemInfo, track, zodiac,
 } from '../lib/saju';
 import type { Me, Reading, Saved } from '../lib/saju';
@@ -103,7 +103,16 @@ function SaveToArchive({ saved }: { saved: Saved }) {
   const [error, setError] = useState<string>();
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   useEffect(() => {
-    fetchMe().then(setMe);
+    fetchMe().then(user => {
+      setMe(user);
+      if (!user) return;
+      // 이미 보관함에 있는 사주면 처음부터 "보관함 보기"로 (방금 저장한 결과 표시는 덮어쓰지 않음)
+      listProfiles()
+        .then(({ profiles }) => {
+          if (profiles.some(p => sameSaju(p, saved.profile))) setStatus(s => (s === 'idle' ? 'existing' : s));
+        })
+        .catch(() => {});
+    });
   }, []);
   const guest = me === null; // 확인 중(undefined)에는 로그인 문구를 먼저 보여 주지 않도록 비회원 판정은 null일 때만
 

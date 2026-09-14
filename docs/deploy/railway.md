@@ -36,13 +36,16 @@ git push -u origin main
 
 ## 2. Railway 서비스 만들기
 
-1. railway.com → GitHub 계정으로 로그인
-2. **New Project → Deploy from GitHub repo → `saju-project`** 선택. 첫 빌드가 시작됩니다 (3~5분, 이 단계에서는 실패해도 괜찮음)
-3. 서비스 화면 → **Settings → Networking → Generate Domain** → 나온 주소(예: `saju-project-production.up.railway.app`)를 적어 둡니다
-4. 서비스 우클릭(또는 Command+K) → **Add Volume** → Mount path **`/data`**
-5. **Variables** 탭 → Raw Editor에 붙여 넣고 값 채우기:
+Railway 화면은 두 층입니다. 왼쪽 아래 톱니바퀴 **Project Settings**는 프로젝트 전체 설정이고, 아래 작업은 모두 **프로젝트 캔버스**(왼쪽 맨 위 아이콘)에 있는 **서비스 카드**를 눌러 열리는 패널(Deployments · Variables · Settings 탭)에서 합니다.
+
+1. railway.com → GitHub 계정으로 로그인 → 프로젝트 열기 (없으면 **New Project**)
+2. 캔버스에 서비스 카드가 없으면: 캔버스 우클릭(또는 오른쪽 위 **+ Create**) → **GitHub Repo** → `leewj1013/saju`. 저장소가 목록에 없으면 **Configure GitHub App**에서 이 저장소 접근을 허용합니다. 첫 빌드가 시작됩니다 (3~5분, 이 단계에서는 실패해도 괜찮음)
+3. 서비스 카드 → **Settings** 탭 → **Networking → Public Networking → Generate Domain**. 포트를 물으면 **3000** → 나온 주소(예: `saju-production.up.railway.app`)를 적어 둡니다
+4. 캔버스 우클릭(또는 `Ctrl+K`) → **Volume** → 연결할 서비스로 이 서비스 선택 → Mount path **`/data`**
+5. 서비스 카드 → **Variables** 탭 → **New Variable → RAW Editor**에 붙여 넣고 값 채우기:
 
 ```text
+PORT=3000
 PUBLIC_URL=https://<3에서 받은 주소>
 PROXY_HOPS=1
 ROBOTS_NOINDEX=true

@@ -89,6 +89,13 @@ test('웹 배포: 정적 파일 캐시 · 앱 경로 새로고침 · API 404 · 
     const shared = await buildServer({ ruleSet, webRoot: root, now: () => NOW }).inject({ url: '/s/abc', headers: html });
     assert.equal(shared.headers['x-robots-tag'], 'noindex, nofollow'); // 베타 설정과 무관하게 공유 결과는 검색 제외
 
+    // 카카오톡 미리보기 수집기처럼 Accept: */* 로 와도 앱 경로는 미리보기 정보가 든 HTML
+    const scraper = await app.inject({ url: '/s/abc?x=1', headers: { accept: '*/*', 'user-agent': 'kakaotalk-scrap/1.0' } });
+    assert.equal(scraper.statusCode, 200);
+    assert.match(scraper.body, /og:image/);
+    const missingFile = await app.inject({ url: '/missing.png', headers: { accept: '*/*' } });
+    assert.equal(missingFile.statusCode, 404); // 없는 파일은 HTML로 덮지 않는다
+
     const raw = await app.inject({ url: '/index.html', headers: html }); // 원본 템플릿(lang="en", 미리보기 정보 없음)은 내보내지 않는다
     assert.doesNotMatch(raw.body, /lang="en"/);
 
