@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 export const C = {
-  ground: '#F2F4F1',
+  ground: '#FEFEFE', // 로고 JPEG 바탕색과 같게. 흰 카드는 테두리로 구분
   surface: '#FFFFFF',
   ink: '#1B1F24',
   ink2: '#4E5752',

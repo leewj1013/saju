@@ -1,7 +1,7 @@
 // 로그인 화면: 위에 로고, 아래에 비회원 로그인 · Google 로그인
 import { Image, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { ErrorText } from '../components/ui';
+import { C, ErrorText } from '../components/ui';
 import { clearLast, startGoogleLogin } from '../lib/saju';
 
 const LOGO = require('../../assets/images/logo.jpg');
@@ -51,18 +51,16 @@ export default function LoginScreen() {
 }
 
 const st = StyleSheet.create({
-  // 로고 이미지 가장자리 색(#FEFEFE)과 같게 해 로고 둘레에 네모 경계가 보이지 않게
-  screen: { flex: 1, backgroundColor: '#FEFEFE', paddingHorizontal: 24, paddingTop: 32, paddingBottom: 40 },
-  top: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  bottom: { width: '100%', maxWidth: 400, alignSelf: 'center', gap: 12 },
-  button: { minHeight: 52, borderRadius: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 16 },
-  pressed: { opacity: 0.75 },
+  screen: { flex: 1, backgroundColor: C.ground, paddingHorizontal: 24, paddingTop: 32, paddingBottom: 40 },
+  top: { flex: 1, alignItems: 'center', justifyContent: 'center' },  bottom: { width: '100%', maxWidth: 400, alignSelf: 'center', gap: 12 },
+  button: { minHeight: 52, borderRadius: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 16 },
+  pressed: { opacity: 0.7 },
   disabled: { opacity: 0.45 },
-  guest: { backgroundColor: '#1B1F24' },
-  guestText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
+  guest: { backgroundColor: C.ink },
+  guestText: { fontSize: 16, fontWeight: '600', color: C.surface },
   // Google 브랜드 가이드의 흰색 버튼: 흰 바탕 · 회색 테두리 · 진한 글자
   google: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#747775' },
   googleIcon: { width: 22, height: 22 },
   googleText: { fontSize: 16, fontWeight: '600', color: '#1F1F1F' },
-  note: { fontSize: 13, lineHeight: 19, color: '#4E5752', textAlign: 'center', marginTop: 4 },
+  note: { fontSize: 13, lineHeight: 19, color: C.ink2, textAlign: 'center', marginTop: 4 },
 });

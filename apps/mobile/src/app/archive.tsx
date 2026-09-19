@@ -237,7 +237,7 @@ const st = StyleSheet.create({
   pressed: { opacity: 0.7 },
   h2: { fontSize: 20, fontWeight: '700', color: C.ink },
   count: { fontSize: 15, fontWeight: '500', color: C.ink2, fontVariant: ['tabular-nums'] },
-  card: { backgroundColor: C.surface, borderRadius: 12, padding: 16, gap: 12, borderWidth: 1, borderColor: C.surface },
+  card: { backgroundColor: C.surface, borderRadius: 12, padding: 16, gap: 12, borderWidth: 1, borderColor: C.rule },
   cardPrimary: { borderColor: C.ink },
   item: { gap: 3 },
   nameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
@@ -250,7 +250,7 @@ const st = StyleSheet.create({
   choiceOn: { backgroundColor: C.ink },
   choiceText: { fontSize: 14, color: C.ink2, fontWeight: '500', fontVariant: ['tabular-nums'] },
   choiceTextOn: { color: C.surface, fontWeight: '600' },
-  edit: { gap: 10, backgroundColor: C.ground, borderRadius: 10, padding: 12 },
+  edit: { gap: 10, backgroundColor: C.tint, borderRadius: 10, padding: 12 },
   primaryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: C.ruleSoft, paddingTop: 10 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, borderTopColor: C.ruleSoft, paddingTop: 12 },
 });

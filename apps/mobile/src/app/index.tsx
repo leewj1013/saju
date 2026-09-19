@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { fetchMe } from '../lib/saju';
+import { C } from '../components/ui';
 
 const LOGO = require('../../assets/images/logo.jpg'); // 760px JPEG 67KB (같은 크기 PNG는 620KB)
 const MIN_SPLASH_MS = 1200; // 로고가 번쩍 보였다 사라지지 않도록 최소로 보여 주는 시간
@@ -35,6 +36,4 @@ export default function StartScreen() {
 }
 
 const st = StyleSheet.create({
-  // 로고 이미지 가장자리 색(#FEFEFE)과 같게 해 로고 둘레에 네모 경계가 보이지 않게
-  screen: { flex: 1, backgroundColor: '#FEFEFE', alignItems: 'center', justifyContent: 'center' },
-});
+  screen: { flex: 1, backgroundColor: C.ground, alignItems: 'center', justifyContent: 'center' },});

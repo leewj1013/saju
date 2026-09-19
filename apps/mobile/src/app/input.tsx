@@ -358,7 +358,7 @@ const st = StyleSheet.create({
   listItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 50, borderBottomWidth: 1, borderBottomColor: C.ruleSoft },
   listText: { fontSize: 16, color: C.ink },
   hanja: { color: C.ink2 },
-  confirm: { gap: 6, backgroundColor: C.ground, borderRadius: 10, padding: 14 },
+  confirm: { gap: 6, backgroundColor: C.tint, borderRadius: 10, padding: 14 },
   confirmMain: { fontSize: 18, fontWeight: '700', color: C.ink, fontVariant: ['tabular-nums'] },
   confirmLine: { fontSize: 15, color: C.ink },
 });

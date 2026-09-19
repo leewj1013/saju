@@ -149,7 +149,7 @@ const st = StyleSheet.create({
   wide: { flexDirection: 'row' },
   wideLeft: { width: 460, flexGrow: 0, borderRightWidth: 1, borderRightColor: C.rule },
   wideRightColumn: { maxWidth: 720 },
-  card: { backgroundColor: C.surface, borderRadius: 12, padding: 16, gap: 12 },
+  card: { backgroundColor: C.surface, borderRadius: 12, padding: 16, gap: 12, borderWidth: 1, borderColor: C.rule },
   h2: { fontSize: 20, fontWeight: '700', color: C.ink },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: C.ink },
   meta: { fontSize: 13, color: C.ink2, lineHeight: 19, fontVariant: ['tabular-nums'] },
