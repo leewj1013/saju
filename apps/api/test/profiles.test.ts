@@ -249,12 +249,67 @@ test('비회원 결과 이어서 저장: 맡기기(로그인 불필요) → 로�
   assert.equal((await deposit({ birthDate: '1990-02-30' })).statusCode, 400);
 });
 
-test('로그에서 가리는 주소: 로그인 콜백 · 시작, 맡긴 결과 토큰', () => {
+test('로그에서 가리는 주소: 로그인 콜백 · 시작, 맡긴 결과 토큰, 공유 링크 토큰', () => {
   assert.equal(redactUrl('/v1/auth/google/callback?code=abc&state=x'), '/v1/auth/google/callback?[생략]');
   assert.equal(redactUrl('/v1/auth/google/start?returnTo=%2Fresult%3Fclaim%3Dtok'), '/v1/auth/google/start?[생략]');
   assert.equal(redactUrl('/v1/pending-saves/tok123/claim'), '/v1/pending-saves/[생략]/claim');
   assert.equal(redactUrl('/result?claim=tok123'), '/result?[생략]');
+  assert.equal(redactUrl('/v1/share/tok123'), '/v1/share/[생략]');
+  assert.equal(redactUrl('/v1/match-shares/tok123'), '/v1/match-shares/[생략]');
+  assert.equal(redactUrl('/s/tok123'), '/s/[생략]');
+  assert.equal(redactUrl('/m/tok123?utm=x'), '/m/[생략]?[생략]');
+  assert.equal(redactUrl('/v1/match-shares'), '/v1/match-shares');
   assert.equal(redactUrl('/v1/readings'), '/v1/readings');
+  assert.equal(redactUrl('/input?for=b'), '/input?for=b');
+});
+
+test('궁합 공유: 사주 공유 링크 속 사람과 궁합(가림 유지) · 궁합 결과 공유(회원) · 열람 · 원래 링크 삭제 · 만료', async () => {
+  const { app, db, loginAs } = setup();
+  const headers = loginAs('user-a');
+  const { profile } = (await app.inject({ method: 'POST', url: '/v1/profiles', payload: body(), headers })).json();
+  const shareToken = (await app.inject({ method: 'POST', url: `/v1/profiles/${profile.profileId}/share`, payload: { hideBirth: true }, headers })).json().token;
+  const me = body({ name: '김서연', gender: 'F', birthDate: '1992-05-05', birthTime: '09:00' });
+  const match = (payload: object) => app.inject({ method: 'POST', url: '/v1/matches', payload });
+
+  // 링크를 받은 사람(로그인 불필요)이 링크 속 사람과 궁합: 그 사람의 생년월일시는 응답에 없다
+  const withShared = await match({ a: me, b: { shareToken }, relation: 'PARTNER' });
+  assert.equal(withShared.statusCode, 200);
+  const w = withShared.json();
+  assert.deepEqual(w.names, ['김서연', '홍길동']);
+  assert.equal(w.a.converted.solarDate, '1992-05-05');
+  assert.equal(w.b.converted, null);
+  assert.doesNotMatch(withShared.body, /1990-01-01|1989-12-05/); // 링크 속 사람의 양력 · 음력 생일
+  assert.equal((await match({ a: me, b: { shareToken: 'nope' }, relation: 'PARTNER' })).statusCode, 404);
+
+  // 궁합 결과 공유: 회원만 만들고, 받은 사람은 로그인 없이 연다 (기본 가림)
+  const create = (payload: object, as: object = headers) => app.inject({ method: 'POST', url: '/v1/match-shares', payload, headers: as });
+  assert.equal((await create({ a: body(), b: me, relation: 'FAMILY', hideBirth: true }, {})).statusCode, 401);
+  const created = await create({ a: body(), b: me, relation: 'FAMILY', hideBirth: true });
+  assert.equal(created.statusCode, 201);
+  assert.match(created.json().token, /^[A-Za-z0-9_-]{22}$/);
+  const opened = await app.inject({ url: `/v1/match-shares/${created.json().token}` });
+  assert.equal(opened.statusCode, 200);
+  assert.equal(opened.headers['cache-control'], 'no-store');
+  const o = opened.json();
+  assert.deepEqual(o.names, ['홍길동', '김서연']);
+  assert.equal(o.hideBirth, true);
+  assert.deepEqual([o.a.converted, o.b.converted], [null, null]);
+  assert.ok(o.report.categories.some((c: { category: string }) => c.category === 'MATCH_BOND'));
+  assert.doesNotMatch(opened.body, /1990-01-01|1992-05-05/);
+  const stored = Buffer.from((db.prepare('SELECT data_enc FROM match_share').get() as { data_enc: Uint8Array }).data_enc);
+  assert.equal(stored.includes(Buffer.from('1992-05-05')), false);
+
+  // 링크 속 사람을 넣은 궁합도 공유할 수 있고, 가림을 끄더라도 원래 링크가 가림이면 그 사람은 계속 가린다
+  const viaShare = (await create({ a: me, b: { shareToken }, relation: 'PARTNER', hideBirth: false })).json().token;
+  const v = (await app.inject({ url: `/v1/match-shares/${viaShare}` })).json();
+  assert.equal(v.a.converted.solarDate, '1992-05-05');
+  assert.equal(v.b.converted, null);
+  // 원래 사주를 지우면(공유 링크도 삭제) 그 사람을 넣은 궁합 공유도 열리지 않는다
+  await app.inject({ method: 'DELETE', url: `/v1/profiles/${profile.profileId}`, headers });
+  assert.equal((await app.inject({ url: `/v1/match-shares/${viaShare}` })).statusCode, 404);
+
+  db.prepare('UPDATE match_share SET expires_at = ?').run(new Date(NOW - 1).toISOString());
+  assert.equal((await app.inject({ url: `/v1/match-shares/${created.json().token}` })).statusCode, 404);
 });
 
 test('암호화: 원래 값으로 복호화되고, 변조 · 다른 키 · 잘못된 키 길이는 실패', () => {

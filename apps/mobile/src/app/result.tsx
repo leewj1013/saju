@@ -76,7 +76,7 @@ export default function ResultScreen() {
 }
 
 /** 결과 화면 본문. shared = 공유 링크로 연 남의 결과 (수정 · 저장 · 공유 없음, 내 사주 보기로 유도) */
-export function ResultBody({ saved, shared = false, claim = {} }: { saved: Saved; shared?: boolean; claim?: Claim }) {
+export function ResultBody({ saved, shared = false, claim = {}, onMatch }: { saved: Saved; shared?: boolean; claim?: Claim; onMatch?: () => void }) {
   const { width } = useWindowDimensions();
   const { chart, report } = saved.reading;
   const left = (
@@ -95,7 +95,12 @@ export function ResultBody({ saved, shared = false, claim = {} }: { saved: Saved
       <Luck chart={chart} />
       <Text style={st.disclaimer}>전통 명리 이론에 기반한 참고용 해석이며, 의학·법률·투자 판단의 근거가 아닙니다.</Text>
       {shared
-        ? <Button label="내 사주도 보기" onPress={() => router.replace('/')} />
+        ? (
+          <>
+            {onMatch && <Button label="이 사람과 내 궁합 보기" onPress={onMatch} />}
+            <Button variant={onMatch ? 'secondary' : 'primary'} label="내 사주도 보기" onPress={() => router.replace('/')} />
+          </>
+        )
         : (
           <>
             <Button
@@ -202,14 +207,28 @@ function SaveToArchive({ saved, claim }: { saved: Saved; claim: Claim }) {
           : '저장해 두면 로그인한 어느 기기에서든 다시 볼 수 있어요.'}
       </Text>
       <ErrorText>{error}</ErrorText>
-      {me && <ShareLink saved={saved} />}
+      {me && (
+        <ShareLink
+          shareText={`${saved.profile.name ? `${saved.profile.name}님의 ` : ''}사주 풀이`}
+          caption="링크가 있는 사람은 로그인 없이 볼 수 있고, 30일 뒤 만료됩니다. 사주를 보관함에서 지우면 링크도 사라집니다."
+          // 사주 공유 링크는 보관함 사주로 만들므로 아직 저장 전이면 함께 저장된다
+          create={async hideBirth => {
+            const { profile } = await saveProfile(saved.profile, saved.options);
+            return `/s/${(await createShare(profile.profileId, hideBirth)).token}`;
+          }}
+        />
+      )}
       <Text style={st.caption}>다른 사람의 생년월일시는 본인 동의를 받은 뒤 저장 · 공유해 주세요.</Text>
     </View>
   );
 }
 
-/** 공유 링크 (웹, 로그인 후). 링크는 보관함 사주로 만들므로 아직 저장 전이면 함께 저장된다 */
-function ShareLink({ saved }: { saved: Saved }) {
+/** 공유 링크 카드 (웹, 로그인 후 · 사주와 궁합 공용). create: 가림 여부로 링크를 만들고 사이트 안 경로(/s/… · /m/…)를 돌려준다 */
+export function ShareLink({ create: makeLink, shareText, caption }: {
+  create: (hideBirth: boolean) => Promise<string>;
+  shareText: string;
+  caption: string;
+}) {
   const [hideBirth, setHideBirth] = useState(true);
   const [link, setLink] = useState<{ url: string; hideBirth: boolean }>();
   const [busy, setBusy] = useState(false);
@@ -221,9 +240,7 @@ function ShareLink({ saved }: { saved: Saved }) {
     setBusy(true);
     setError(undefined);
     try {
-      const { profile } = await saveProfile(saved.profile, saved.options);
-      const { token } = await createShare(profile.profileId, hideBirth);
-      setLink({ url: `${window.location.origin}/s/${token}`, hideBirth });
+      setLink({ url: `${window.location.origin}${await makeLink(hideBirth)}`, hideBirth });
       setCopied(false);
     } catch (e) {
       setError(errorMessage(e instanceof ReadingError ? e.errors[0]?.code : 'SERVER_ERROR'));
@@ -237,7 +254,7 @@ function ShareLink({ saved }: { saved: Saved }) {
     if (!link) return;
     try {
       if (channel === 'native') {
-        await navigator.share({ title: '사주 四柱', text: `${saved.profile.name ? `${saved.profile.name}님의 ` : ''}사주 풀이`, url: link.url });
+        await navigator.share({ title: '사주 四柱', text: shareText, url: link.url });
       } else {
         await navigator.clipboard.writeText(link.url);
         setCopied(true);
@@ -276,7 +293,7 @@ function ShareLink({ saved }: { saved: Saved }) {
         <Button size="sm" label="공유 링크 만들기" onPress={create} loading={busy} loadingLabel="만드는 중…" />
       )}
       <ErrorText>{error}</ErrorText>
-      <Text style={st.caption}>링크가 있는 사람은 로그인 없이 볼 수 있고, 30일 뒤 만료됩니다. 사주를 보관함에서 지우면 링크도 사라집니다.</Text>
+      <Text style={st.caption}>{caption}</Text>
     </View>
   );
 }

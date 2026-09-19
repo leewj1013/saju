@@ -18,7 +18,7 @@ import fastifyCookie from '@fastify/cookie';
 import type { DatabaseSync } from 'node:sqlite';
 import { registerGoogleAuth } from './auth.ts';
 import type { GoogleConfig } from './auth.ts';
-import { registerProfiles } from './profiles.ts';
+import { hideBirth, registerProfiles } from './profiles.ts';
 import { webHead } from './web-head.ts';
 
 const READING_BODY = {
@@ -50,7 +50,17 @@ const READING_BODY = {
 const MATCH_BODY = {
   type: 'object',
   required: ['a', 'b', 'relation'],
-  properties: { a: READING_BODY, b: READING_BODY, relation: { type: 'string', enum: RELATIONS } },
+  // b는 직접 입력하거나, 사주 공유 링크로 받은 사람이면 그 토큰만 보낸다 (생년월일시는 서버만 앎)
+  properties: {
+    a: READING_BODY,
+    b: { anyOf: [READING_BODY, { type: 'object', required: ['shareToken'], properties: { shareToken: { type: 'string', maxLength: 64 } } }] },
+    relation: { type: 'string', enum: RELATIONS },
+  },
+};
+const MATCH_SHARE_BODY = {
+  ...MATCH_BODY,
+  required: [...MATCH_BODY.required, 'hideBirth'],
+  properties: { ...MATCH_BODY.properties, hideBirth: { type: 'boolean' } },
 };
 
 // 계측 이벤트 (PRD §8). 허용한 속성만 남기고 개인정보는 받지 않는다. 기능이 붙을 때 이벤트를 추가한다
@@ -81,9 +91,12 @@ const EVENT_BODY = {
  * 토큰은 로그인 뒤 돌아올 주소(/result?claim=…)에도 실려 오므로 경로 · 쿼리 모두 가린다
  */
 export function redactUrl(url: string) {
-  if (url.startsWith('/v1/pending-saves/')) return '/v1/pending-saves/[생략]/claim';
-  if (url.startsWith('/v1/auth/google/') || url.includes('claim=')) return `${url.split('?')[0]}?[생략]`;
-  return url;
+  const [path, query] = url.split('?');
+  // 공유 링크 · 맡긴 결과 토큰이 경로에 있는 주소
+  const safePath = path.replace(/^(\/(?:v1\/share|v1\/match-shares|v1\/pending-saves|s|m)\/)[^/]+/, '$1[생략]');
+  if (query === undefined) return safePath;
+  const hideQuery = safePath !== path || path.startsWith('/v1/auth/google/') || query.includes('claim=');
+  return `${safePath}?${hideQuery ? '[생략]' : query}`;
 }
 
 export function cleanEventProps(name: string, props: Record<string, unknown> = {}) {
@@ -234,33 +247,57 @@ export function buildServer({
     }
   });
 
-  // 궁합 (비회원도 가능, 서버에 저장하지 않음). 두 사람 모두 틀렸으면 둘 다 알려 준다
-  app.post('/v1/matches', { schema: { body: MATCH_BODY }, preHandler: limiter(rateLimitPerMin) }, async (req, reply) => {
-    const { a, b, relation } = req.body as { a: Person; b: Person; relation: Relation };
-    const results = (['a', 'b'] as const).map(side => {
+  // 사주 공유 링크 토큰 → 그 사람의 입력 · 가림 여부. 보관함 모듈이 등록되면 채워진다 (로그인 · 암호화 키가 있을 때만)
+  let resolveShared: ((token: string) => { person: Person; hideBirth: boolean } | null) | undefined;
+  type MatchPerson = Person | { shareToken: string };
+
+  /**
+   * 궁합 계산 (새 궁합 · 궁합 공유 열람 공용). 두 사람 모두 틀렸으면 둘 다 SajuInputError(a. · b. 필드)로,
+   * 상대가 사주 공유 링크인데 없거나 만료면 SHARE_NOT_FOUND. 공유 링크가 가림이면 그 사람의 생년월일시는 응답에서 뺀다
+   */
+  const buildMatch = (a: Person, b: MatchPerson, relation: Relation) => {
+    const shared = 'shareToken' in b ? resolveShared?.(b.shareToken) ?? null : undefined;
+    if (shared === null) throw new SajuInputError([{ field: 'b', code: 'SHARE_NOT_FOUND' }]);
+    const bPerson = shared ? shared.person : (b as Person);
+
+    const results = ([['a', a], ['b', bPerson]] as const).map(([side, person]) => {
       try {
-        return calculateFor(side, side === 'a' ? a : b);
+        return calculateFor(side, person);
       } catch (e) {
         if (e instanceof SajuInputError) return e;
         throw e;
       }
     });
     const errors = results.flatMap(r => (r instanceof SajuInputError ? r.errors : []));
-    if (errors.length) return reply.code(400).send({ errors });
+    if (errors.length) throw new SajuInputError(errors);
 
     const [ra, rb] = results as ReturnType<typeof calculate>[];
-    const report = buildMatchReport(ra.chart, rb.chart, ruleSet, relation, { a: a.profile.name?.trim(), b: b.profile.name?.trim() });
-    return {
-      relation,
-      a: { converted: ra.converted, notices: ra.notices, chart: ra.chart },
-      b: { converted: rb.converted, notices: rb.notices, chart: rb.chart },
-      match: report.match,
-      report: publicReport(report),
+    const names = [a.profile.name?.trim() ?? '', bPerson.profile.name?.trim() ?? ''];
+    const report = buildMatchReport(ra.chart, rb.chart, ruleSet, relation, { a: names[0], b: names[1] });
+    const side = (r: ReturnType<typeof calculate>, hide: boolean) => {
+      const x = hide ? hideBirth({ ...r, report: {} }) : r;
+      return { converted: x.converted, notices: x.notices, chart: x.chart };
     };
+    return { relation, names, a: side(ra, false), b: side(rb, !!shared?.hideBirth), match: report.match, report: publicReport(report) };
+  };
+  const matchErrorStatus = (e: SajuInputError) => (e.errors.some(err => err.code === 'SHARE_NOT_FOUND') ? 404 : 400);
+
+  // 궁합 (비회원도 가능, 서버에 저장하지 않음)
+  app.post('/v1/matches', { schema: { body: MATCH_BODY }, preHandler: limiter(rateLimitPerMin) }, async (req, reply) => {
+    const { a, b, relation } = req.body as { a: Person; b: MatchPerson; relation: Relation };
+    try {
+      return buildMatch(a, b, relation);
+    } catch (e) {
+      if (e instanceof SajuInputError) return reply.code(matchErrorStatus(e)).send({ errors: e.errors });
+      throw e;
+    }
   });
 
   if (auth && dataKey) {
-    registerProfiles(app, { db: db!, dataKey, userIdOf: auth.userIdOf, buildReading, bodySchema: READING_BODY, guestLimiter: limiter(rateLimitPerMin), now });
+    resolveShared = registerProfiles(app, {
+      db: db!, dataKey, userIdOf: auth.userIdOf, buildReading, buildMatch, matchErrorStatus,
+      bodySchema: READING_BODY, matchShareSchema: MATCH_SHARE_BODY, guestLimiter: limiter(rateLimitPerMin), now,
+    }).resolveShared;
   }
 
   if (webRoot) {
@@ -283,7 +320,7 @@ export function buildServer({
     // 확장자가 있는 경로(없는 이미지 · 번들 파일)는 HTML 대신 404
     app.setNotFoundHandler((req, reply) => {
       if (req.method === 'GET' && !req.url.startsWith('/v1/') && !/\.\w+$/.test(req.url.split('?')[0])) {
-        if (req.url.startsWith('/s/')) reply.header('X-Robots-Tag', 'noindex, nofollow'); // 공유 결과는 검색에 노출하지 않는다
+        if (req.url.startsWith('/s/') || req.url.startsWith('/m/')) reply.header('X-Robots-Tag', 'noindex, nofollow'); // 공유 결과는 검색에 노출하지 않는다
         return sendIndex(reply);
       }
       return reply.code(404).send({ errors: [{ field: null, code: 'NOT_FOUND' }] });

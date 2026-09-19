@@ -77,6 +77,7 @@ export default function RootLayout() {
         <Stack.Screen name="s/[token]" options={{ title: '공유된 사주' }} />
         <Stack.Screen name="match" options={{ title: '궁합 보기' }} />
         <Stack.Screen name="match-result" options={{ title: '궁합 결과' }} />
+        <Stack.Screen name="m/[token]" options={{ title: '공유된 궁합' }} />
       </Stack>
     </>
   );

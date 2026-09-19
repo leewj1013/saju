@@ -51,6 +51,7 @@ const MESSAGES: Record<string, string> = {
   UNAUTHORIZED: '로그인이 필요합니다.',
   ARCHIVE_FULL: '보관함이 가득 찼습니다(최대 50개). 안 보는 사주를 지운 뒤 다시 저장해 주세요.',
   NOT_FOUND: '보관함에서 찾을 수 없는 사주입니다. 목록을 새로 불러와 주세요.',
+  SHARE_NOT_FOUND: '공유 링크가 만료됐거나 삭제돼 이 사람과의 궁합을 볼 수 없어요. 상대를 다시 골라 주세요.',
   PENDING_EXPIRED: '로그인하는 동안 시간이 오래 지나 결과를 가져오지 못했어요. 사주 정보를 다시 입력해 주세요.',
 };
 export const errorMessage = (code: string) => MESSAGES[code] ?? '결과를 만들지 못했습니다. 잠시 뒤 다시 시도해 주세요.';
@@ -181,22 +182,34 @@ export const RELATIONS: { value: Relation; label: string }[] = [
 export const relationOfTag = (tag: string | null): Relation | undefined =>
   tag === 'PARTNER' || tag === 'FAMILY' || tag === 'FRIEND' ? tag : undefined;
 export type Person = { profile: Profile; options: Options };
+/** 사주 공유 링크로 받은 사람: 생년월일시는 서버만 알고, 앱은 링크 토큰과 이름만 가진다 */
+export type SharedPerson = { shareToken: string; name: string };
+export type MatchPerson = Person | SharedPerson;
+export const isSharedPerson = (p: MatchPerson): p is SharedPerson => 'shareToken' in p;
+export const personName = (p: MatchPerson) => (isSharedPerson(p) ? p.name : p.profile.name);
+const wire = (p: MatchPerson) => (isSharedPerson(p) ? { shareToken: p.shareToken } : p);
 export const personOf = (p: Profile & { options: Options }): Person => ({
   profile: { name: p.name, gender: p.gender, calendar: p.calendar, isLeapMonth: p.isLeapMonth, birthDate: p.birthDate, birthTime: p.birthTime, regionCode: p.regionCode },
   options: p.options,
 });
 export type MatchResult = {
   relation: Relation;
+  names: [string, string]; // 입력한 이름 (없으면 빈 문자열)
   a: Omit<Reading, 'report'>;
   b: Omit<Reading, 'report'>;
   match: { score: number; band: string; points: { label: string; tone: 'good' | 'care' }[] };
   report: Reading['report'];
 };
-export const requestMatch = (a: Person, b: Person, relation: Relation) =>
-  api<MatchResult>('/v1/matches', { method: 'POST', body: JSON.stringify({ a, b, relation }) });
+export const requestMatch = (a: Person, b: MatchPerson, relation: Relation) =>
+  api<MatchResult>('/v1/matches', { method: 'POST', body: JSON.stringify({ a, b: wire(b), relation }) });
+// 궁합 결과 공유 (회원 · 30일 · 기본 가림). 받은 사람은 /m/토큰 으로 로그인 없이 연다
+export const createMatchShare = (a: Person, b: MatchPerson, relation: Relation, hideBirth: boolean) =>
+  api<{ token: string; expiresAt: string }>('/v1/match-shares', { method: 'POST', body: JSON.stringify({ a, b: wire(b), relation, hideBirth }) });
+export const openMatchShare = (token: string) =>
+  api<MatchResult & { hideBirth: boolean; expiresAt: string }>(`/v1/match-shares/${encodeURIComponent(token)}`);
 
-export type MatchDraft = { a?: Person; b?: Person; relation: Relation };
-export type SavedMatch = { a: Person; b: Person; result: MatchResult };
+export type MatchDraft = { a?: Person; b?: MatchPerson; relation: Relation };
+export type SavedMatch = { a: Person; b: MatchPerson; result: MatchResult };
 const DRAFT_KEY = 'saju.matchDraft';
 const MATCH_KEY = 'saju.lastMatch';
 async function readJson<T>(key: string): Promise<T | null> {

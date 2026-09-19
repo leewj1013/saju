@@ -912,6 +912,10 @@ MVP 합계 약 **216 룰 × 평균 2 변형 ≈ 430 문장**.
 | PATCH | `/v1/profiles/{id}` | 회원 | `{ tag?, isPrimary? }` 태그(`SELF` 본인 · `FAMILY` 가족 · `FRIEND` 친구 · `PARTNER` 연인 · `OTHER` 기타 · `null` 없음) · 대표 지정. 대표는 사용자당 하나 — 새로 지정하면 기존 대표 해제, 목록 맨 위 |
 | POST | `/v1/profiles/{id}/share` | 회원 | `{hideBirth}` → `{token, expiresAt}` (보관함 사주 기준, 30일 만료, 남의 사주는 404) |
 | GET | `/v1/share/{token}` | 없음 | 공유 결과 열람 (열 때 다시 계산). 가림이면 생년월일 · 음력 · 보정 안내를 빼고 대운 시작 시각은 연도만. 없음 · 만료 · 삭제는 404 |
+| POST | `/v1/match-shares` | 회원 | 궁합 결과 공유: `{a, b, relation, hideBirth}` → `{token, expiresAt}` (30일). 입력은 암호화 저장, 열 때 다시 계산. 받은 사람 화면 `/m/{token}` |
+| GET | `/v1/match-shares/{token}` | 없음 | 궁합 공유 열람. 가림이면 두 사람 모두 생년월일시 제외. 없음 · 만료 · 상대의 원래 공유 링크 삭제는 404 |
+
+`/v1/matches` · `/v1/match-shares`의 `b`는 `{shareToken}`도 받는다: 사주 공유 링크를 받은 사람이 "이 사람과 내 궁합 보기"를 할 때 그 사람의 생년월일시는 앱에 내려가지 않고 서버에서만 계산한다 (원래 링크가 가림이면 응답에서도 가림). 링크가 없거나 만료면 404 `SHARE_NOT_FOUND`.
 | POST | `/v1/readings/{id}/exports` | 회원 | `{format:"pdf"}` → 서명 URL (10분 유효) |
 | GET | `/v1/lunar/convert` | 없음 | 입력 미리보기 (서버 폴백용) |
 

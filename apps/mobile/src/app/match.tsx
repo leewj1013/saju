@@ -4,10 +4,10 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { Button, C, Chip, ErrorText, Segmented, Sheet } from '../components/ui';
 import {
-  RELATIONS, ReadingError, errorMessage, listProfiles, loadLast, loadMatchDraft, personOf, relationOfTag,
+  RELATIONS, ReadingError, errorMessage, isSharedPerson, listProfiles, loadLast, loadMatchDraft, personName, personOf, relationOfTag,
   requestMatch, sameSaju, saveMatch, saveMatchDraft, tagLabel, track,
 } from '../lib/saju';
-import type { ArchivedProfile, MatchDraft, Person, Profile } from '../lib/saju';
+import type { ArchivedProfile, MatchDraft, MatchPerson, Person, Profile } from '../lib/saju';
 
 type Side = 'a' | 'b';
 const SIDE_LABEL: Record<Side, string> = { a: '나', b: '상대' };
@@ -54,7 +54,7 @@ export default function MatchScreen() {
     saveMatchDraft(next);
   };
   // 상대를 보관함에서 고르면 태그(연인 · 가족 · 친구)로 관계도 맞춘다
-  const pick = (side: Side, person: Person, tag: string | null = null) => {
+  const pick = (side: Side, person: MatchPerson, tag: string | null = null) => {
     update({ ...draft, [side]: person, relation: (side === 'b' && relationOfTag(tag)) || draft.relation });
     setPicking(null);
   };
@@ -89,14 +89,14 @@ export default function MatchScreen() {
     return (
       <Pressable
         onPress={() => setPicking(side)} accessibilityRole="button"
-        accessibilityLabel={`${SIDE_LABEL[side]}, ${person ? `${person.profile.name || '이름 없음'}, 바꾸기` : '고르기'}`}
+        accessibilityLabel={`${SIDE_LABEL[side]}, ${person ? `${personName(person) || '이름 없음'}, 바꾸기` : '고르기'}`}
         style={({ pressed }) => [st.slot, !person && st.slotEmpty, pressed && st.pressed]}
       >
         <Text style={st.slotLabel}>{SIDE_LABEL[side]}</Text>
         {person ? (
           <>
-            <Text style={st.slotName} numberOfLines={1}>{person.profile.name || '이름 없음'}</Text>
-            <Text style={st.meta}>{describe(person.profile)}</Text>
+            <Text style={st.slotName} numberOfLines={1}>{personName(person) || '이름 없음'}</Text>
+            <Text style={st.meta}>{isSharedPerson(person) ? '공유받은 사주 · 생년월일시 비공개' : describe(person.profile)}</Text>
             <Text style={st.link}>바꾸기</Text>
           </>
         ) : (

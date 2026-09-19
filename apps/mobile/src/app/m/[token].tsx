@@ -1,22 +1,22 @@
-// SCR-SHARE-02 공유 링크 열람 (PRD §3.2): 로그인 없이, 결과 화면과 같은 모양으로 보여 주고 내 사주 보기로 유도
+// 궁합 결과 공유 열람: 로그인 없이 보고, "나도 궁합 보기"로 유도
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Button, C } from '../../components/ui';
-import { ReadingError, loadMatchDraft, openShare, saveMatchDraft, track } from '../../lib/saju';
-import type { Shared } from '../../lib/saju';
-import { ResultBody } from '../result';
+import { ReadingError, openMatchShare, track } from '../../lib/saju';
+import type { MatchResult } from '../../lib/saju';
+import { MatchBody } from '../match-result';
 
-export default function SharedScreen() {
+export default function SharedMatchScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
-  const [shared, setShared] = useState<Shared>();
+  const [shared, setShared] = useState<MatchResult>();
   const [failed, setFailed] = useState<'NOT_FOUND' | 'OTHER'>();
 
   useEffect(() => {
-    openShare(token)
+    openMatchShare(token)
       .then(s => {
         setShared(s);
-        track('result_view', { source: 'share' });
+        track('match_view', { relation: s.relation });
       })
       .catch(e => setFailed(e instanceof ReadingError && e.errors[0]?.code === 'NOT_FOUND' ? 'NOT_FOUND' : 'OTHER'));
   }, [token]);
@@ -30,17 +30,18 @@ export default function SharedScreen() {
             ? '공유한 지 30일이 지났거나, 공유한 사람이 사주를 삭제했을 수 있어요.'
             : '인터넷 연결을 확인하고 다시 열어 주세요.'}
         </Text>
-        <Button label="내 사주 보기" onPress={() => router.replace('/')} />
+        <Button label="나도 궁합 보기" onPress={() => router.replace('/match')} />
       </View>
     );
   }
   if (!shared) return <View style={st.screen} />;
-  // 이 사람을 "상대" 칸에 넣고 궁합 고르기로 ("나" 칸은 대표 사주 · 최근 본 사주로 채워짐). 생년월일시는 서버만 안다
-  const matchWithThisPerson = async () => {
-    await saveMatchDraft({ ...(await loadMatchDraft()), b: { shareToken: token, name: shared.profile.name } });
-    router.push('/match');
-  };
-  return <ResultBody saved={shared} shared onMatch={matchWithThisPerson} />;
+  return (
+    <MatchBody
+      result={shared}
+      names={[shared.names[0] || '첫 번째 사람', shared.names[1] || '두 번째 사람']}
+      actions={<Button label="나도 궁합 보기" onPress={() => router.replace('/match')} />}
+    />
+  );
 }
 
 const st = StyleSheet.create({

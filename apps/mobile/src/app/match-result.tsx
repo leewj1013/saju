@@ -1,11 +1,14 @@
-// 궁합 보기 ②: 두 사람 · 점수 · 근거 칩 · 오행 비교 · 해석 탭 · 올해 흐름
+// 궁합 보기 ②: 두 사람 · 점수 · 근거 칩 · 오행 비교 · 해석 탭 · 올해 흐름 · 결과 공유
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import type { ReactNode } from 'react';
+import { Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
 import { Button, C, OH } from '../components/ui';
-import { ELEMENTS, ELEMENT_HANJA, LABELS, RELATIONS, loadMatch, stemInfo, track } from '../lib/saju';
-import type { SavedMatch } from '../lib/saju';
-import { Interpretation } from './result';
+import {
+  ELEMENTS, ELEMENT_HANJA, LABELS, RELATIONS, createMatchShare, fetchMe, loadMatch, personName, startGoogleLogin, stemInfo, track,
+} from '../lib/saju';
+import type { MatchResult, Me, SavedMatch } from '../lib/saju';
+import { Interpretation, ShareLink } from './result';
 
 // 근거 칩 색: 오행 색과 겹치지 않는 좋음(초록) · 주의(노랑)
 const TONE = {
@@ -15,7 +18,6 @@ const TONE = {
 
 export default function MatchResultScreen() {
   const [saved, setSaved] = useState<SavedMatch | null | undefined>(undefined);
-  const { width } = useWindowDimensions();
 
   useEffect(() => {
     loadMatch().then(s => {
@@ -34,8 +36,20 @@ export default function MatchResultScreen() {
     );
   }
 
-  const { result } = saved;
-  const names = [saved.a.profile.name || '나', saved.b.profile.name || '상대'];
+  const names = [saved.result.names?.[0] || saved.a.profile.name || '나', saved.result.names?.[1] || personName(saved.b) || '상대'];
+  return (
+    <MatchBody
+      result={saved.result}
+      names={names}
+      share={<MatchShare saved={saved} names={names} />}
+      actions={<Button variant="secondary" label="사람 · 관계 바꾸기" onPress={() => (router.canGoBack() ? router.back() : router.replace('/match'))} />}
+    />
+  );
+}
+
+/** 궁합 결과 본문 (내 결과 · 공유 링크 열람 공용). share: 왼쪽 열 끝, actions: 오른쪽 열 끝 */
+export function MatchBody({ result, names, share, actions }: { result: MatchResult; names: string[]; share?: ReactNode; actions: ReactNode }) {
+  const { width } = useWindowDimensions();
   const charts = [result.a.chart, result.b.chart];
   const relation = RELATIONS.find(r => r.value === result.relation)?.label;
 
@@ -113,6 +127,7 @@ export default function MatchResultScreen() {
           </View>
         ))}
       </View>
+      {share}
     </>
   );
 
@@ -120,7 +135,7 @@ export default function MatchResultScreen() {
     <>
       <Interpretation key={`${result.relation}-${result.match.score}`} report={result.report} />
       <Text style={st.disclaimer}>전통 명리 이론에 기반한 참고용 해석이며, 관계에 대한 판단은 두 사람의 몫입니다.</Text>
-      <Button variant="secondary" label="사람 · 관계 바꾸기" onPress={() => (router.canGoBack() ? router.back() : router.replace('/match'))} />
+      {actions}
     </>
   );
 
@@ -137,6 +152,34 @@ export default function MatchResultScreen() {
       {left}
       {right}
     </ScrollView>
+  );
+}
+
+/** 궁합 결과 공유 (웹). 로그인 후 링크를 만들고, 비회원이면 로그인으로 (결과는 이 기기에 남아 돌아오면 그대로) */
+function MatchShare({ saved, names }: { saved: SavedMatch; names: string[] }) {
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  useEffect(() => {
+    fetchMe().then(setMe);
+  }, []);
+  if (Platform.OS !== 'web' || me === undefined) return null;
+
+  return (
+    <View style={st.card}>
+      <Text style={st.sectionTitle}>궁합 결과 공유</Text>
+      {me ? (
+        <ShareLink
+          shareText={`${names[0]} · ${names[1]} 궁합 결과`}
+          caption="링크가 있는 사람은 로그인 없이 볼 수 있고, 30일 뒤 만료됩니다."
+          create={async hideBirth => `/m/${(await createMatchShare(saved.a, saved.b, saved.result.relation, hideBirth)).token}`}
+        />
+      ) : (
+        <>
+          <Text style={st.meta}>궁합 결과 공유는 Google 로그인 후 쓸 수 있어요.</Text>
+          <Button size="sm" label="Google 로그인하고 공유" onPress={() => startGoogleLogin('/match-result')} />
+        </>
+      )}
+      <Text style={st.caption}>다른 사람의 생년월일시는 본인 동의를 받은 뒤 공유해 주세요.</Text>
+    </View>
   );
 }
 

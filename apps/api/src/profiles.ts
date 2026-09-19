@@ -94,6 +94,9 @@ export function registerProfiles(app: FastifyInstance, deps: {
   userIdOf: (req: FastifyRequest) => string | null;
   buildReading: (profile: ProfileInput, options: SajuOptions) => Reading;
   bodySchema: object;
+  buildMatch: (a: any, b: any, relation: any) => any; // 궁합 계산 (server.ts)
+  matchErrorStatus: (e: SajuInputError) => number;
+  matchShareSchema: object;
   guestLimiter: (req: FastifyRequest, reply: FastifyReply) => Promise<unknown>; // 로그인 없이 쓰는 경로의 IP당 요청 제한
   now: () => number;
 }) {
@@ -297,4 +300,56 @@ export function registerProfiles(app: FastifyInstance, deps: {
       reading: hidden ? hideBirth(reading) : reading,
     };
   });
+
+  /** 사주 공유 링크 토큰 → 그 사람의 입력 (받은 사람이 "이 사람과 내 궁합 보기"를 할 때). 없음 · 만료면 null */
+  const resolveShared = (token: string) => {
+    const row = db.prepare(`SELECT p.*, s.hide_birth FROM share_link s JOIN saju_profile p ON p.profile_id = s.profile_id
+      WHERE s.token = ? AND s.expires_at > ?`).get(token, new Date(now()).toISOString()) as (Row & { hide_birth: number }) | undefined;
+    return row ? { person: decode(row), hideBirth: row.hide_birth === 1 } : null;
+  };
+
+  // 궁합 결과 공유 (회원). 두 사람의 입력(상대가 사주 공유 링크면 그 토큰만)을 암호화해 두고 열 때마다 다시 계산한다
+  app.post('/v1/match-shares', { schema: { body: deps.matchShareSchema } }, async (req, reply) => {
+    const userId = userIdOf(req);
+    if (!userId) return error(reply, 401, 'UNAUTHORIZED');
+    const body = req.body as { a: any; b: any; relation: string; hideBirth: boolean };
+    const data = { a: pick(body.a), b: 'shareToken' in body.b ? { shareToken: body.b.shareToken } : pick(body.b), relation: body.relation };
+    try {
+      deps.buildMatch(data.a, data.b, data.relation); // 입력 · 공유 링크가 유효한지 먼저 확인
+    } catch (e) {
+      if (e instanceof SajuInputError) return reply.code(deps.matchErrorStatus(e)).send({ errors: e.errors });
+      throw e;
+    }
+    const token = crypto.randomBytes(16).toString('base64url');
+    const expiresAt = new Date(now() + SHARE_DAYS * 86_400_000).toISOString();
+    db.prepare('INSERT INTO match_share (token, user_id, data_enc, hide_birth, expires_at) VALUES (?, ?, ?, ?, ?)')
+      .run(token, userId, seal(keys.enc, JSON.stringify(data)), body.hideBirth ? 1 : 0, expiresAt);
+    return reply.code(201).send({ token, expiresAt });
+  });
+
+  // 궁합 결과 공유 열람: 로그인 불필요. 없음 · 만료 · (상대의) 원래 공유 링크 삭제는 404
+  app.get('/v1/match-shares/:token', async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const row = db.prepare('SELECT data_enc, hide_birth, expires_at FROM match_share WHERE token = ? AND expires_at > ?')
+      .get((req.params as { token: string }).token, new Date(now()).toISOString()) as { data_enc: Uint8Array; hide_birth: number; expires_at: string } | undefined;
+    if (!row) return error(reply, 404, 'NOT_FOUND');
+    const { a, b, relation } = JSON.parse(unseal(keys.enc, row.data_enc));
+    let result;
+    try {
+      result = deps.buildMatch(a, b, relation);
+    } catch (e) {
+      if (e instanceof SajuInputError) return error(reply, 404, 'NOT_FOUND');
+      throw e;
+    }
+    if (row.hide_birth === 1) {
+      const hide = (x: any) => {
+        const h = hideBirth({ ...x, report: {} });
+        return { converted: h.converted, notices: h.notices, chart: h.chart };
+      };
+      result = { ...result, a: hide(result.a), b: hide(result.b) };
+    }
+    return { ...result, hideBirth: row.hide_birth === 1, expiresAt: row.expires_at };
+  });
+
+  return { resolveShared };
 }
