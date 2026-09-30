@@ -3,18 +3,13 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { router } from 'expo-router';
-import { Button, C, OH } from '../components/ui';
+import { Button, C, OH, Points } from '../components/ui';
 import {
   ELEMENTS, ELEMENT_HANJA, LABELS, RELATIONS, createMatchShare, fetchMe, loadMatch, personName, startGoogleLogin, stemInfo, track,
 } from '../lib/saju';
 import type { MatchResult, Me, SavedMatch } from '../lib/saju';
 import { Interpretation, ShareLink } from './result';
 
-// 근거 칩 색: 오행 색과 겹치지 않는 좋음(초록) · 주의(노랑)
-const TONE = {
-  good: { bg: '#E3F1E6', fg: '#1F5A33' },
-  care: { bg: '#FBEFD5', fg: '#734B00' },
-};
 
 export default function MatchResultScreen() {
   const [saved, setSaved] = useState<SavedMatch | null | undefined>(undefined);
@@ -80,15 +75,7 @@ export function MatchBody({ result, names, share, actions }: { result: MatchResu
         </View>
         {/* 가운데 칸은 좁아 한글이 단어 중간에서 끊기므로 등급은 전체 폭으로 */}
         <Text style={st.band}>{LABELS[result.match.band]}</Text>
-        {result.match.points.length > 0 && (
-          <View style={st.points}>
-            {result.match.points.map(p => (
-              <View key={p.label} style={[st.point, { backgroundColor: TONE[p.tone].bg }]}>
-                <Text style={[st.pointText, { color: TONE[p.tone].fg }]}>{p.tone === 'good' ? '＋ ' : '！ '}{p.label}</Text>
-              </View>
-            ))}
-          </View>
-        )}
+        <Points points={result.match.points} />
       </View>
 
       <View style={st.card}>
@@ -210,9 +197,6 @@ const st = StyleSheet.create({
   scoreNum: { fontSize: 40, lineHeight: 46, fontWeight: '700', color: C.ink, fontVariant: ['tabular-nums'] },
   scoreUnit: { fontSize: 16, fontWeight: '600', color: C.ink2 },
   band: { fontSize: 14, fontWeight: '600', color: C.ink, textAlign: 'center' },
-  points: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center' },
-  point: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
-  pointText: { fontSize: 13, fontWeight: '600' },
 
   compareRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   half: { flex: 1 },

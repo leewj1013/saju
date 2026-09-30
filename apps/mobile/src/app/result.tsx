@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Button, C, Chip, ErrorText, OH } from '../components/ui';
+import { Button, C, Chip, ErrorText, OH, Points } from '../components/ui';
 import {
   ELEMENTS, ELEMENT_HANJA, LABELS, ReadingError, branchInfo, claimPendingSave, createPendingSave, createShare, errorMessage, fetchMe, listProfiles, loadLast, loadMatchDraft, requestReading, sameSaju, saveLast, saveMatchDraft,
   saveProfile, seoulToday, startGoogleLogin, stemInfo, track, zodiac,
@@ -82,6 +82,7 @@ export function ResultBody({ saved, shared = false, claim = {}, onMatch }: { sav
   const left = (
     <>
       <Header saved={saved} shared={shared} />
+      <TodayCard chart={chart} />
       <Summary reading={saved.reading} />
       {!shared && <SaveToArchive saved={saved} claim={claim} />}
       <ChartTable saved={saved} />
@@ -321,6 +322,29 @@ function Header({ saved, shared }: { saved: Saved; shared: boolean }) {
           <Text style={st.link}>수정</Text>
         </Pressable>
       )}
+    </View>
+  );
+}
+
+const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
+
+/** 맨 위 오늘의 운세 점수. 보관함에 저장해 둔 옛 결과에는 점수가 없어 그때는 보이지 않는다 */
+function TodayCard({ chart }: { chart: any }) {
+  const today = chart.today;
+  if (typeof today?.score !== 'number') return null;
+  const [y, m, d] = today.date.split('-').map(Number);
+  const label = `${m}월 ${d}일 (${WEEKDAY[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}) · ${today.ganjiKo}일`;
+  return (
+    <View style={st.card}>
+      <View style={st.todayRow} accessible accessibilityLabel={`오늘의 운세 ${today.score}점, ${LABELS[today.band]}, ${label}`}>
+        <Text style={st.todayScore}>{today.score}<Text style={st.todayUnit}>점</Text></Text>
+        <View style={[st.grow, { gap: 2 }]}>
+          <Text style={st.eyebrow}>오늘의 운세</Text>
+          <Text style={st.h3}>{LABELS[today.band]}</Text>
+          <Text style={st.meta}>{label}</Text>
+        </View>
+      </View>
+      <Points points={today.points} />
     </View>
   );
 }
@@ -586,6 +610,10 @@ function Luck({ chart }: { chart: any }) {
 const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.ground },
   grow: { flex: 1 },
+  todayRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  // 궁합 점수(40)보다 작게: 여기서는 화면의 주인공이 아니라 글의 머리말
+  todayScore: { fontSize: 32, lineHeight: 38, fontWeight: '700', color: C.ink, fontVariant: ['tabular-nums'] },
+  todayUnit: { fontSize: 15, fontWeight: '600', color: C.ink2 },
   bold: { fontWeight: '700' },
   hidden: { opacity: 0 },
   empty: { alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },

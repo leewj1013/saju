@@ -49,6 +49,49 @@ function twelveStage(dayStem: number, branch: number): string {
   return TWELVE_STAGES[dayStem % 2 === 0 ? mod(branch - start, 12) : mod(start - branch, 12)];
 }
 
+// 신강·신약에 따라 반가운 십성이 갈린다. 중화는 어느 쪽도 크게 반기거나 꺼리지 않아 빈 목록
+const TODAY_HELPFUL: Record<string, string[]> = {
+  VERY_WEAK: ['BIGEOP', 'INSEONG'], WEAK: ['BIGEOP', 'INSEONG'],
+  BALANCED: [],
+  STRONG: ['SIKSANG', 'JAESEONG', 'GWANSEONG'], VERY_STRONG: ['SIKSANG', 'JAESEONG', 'GWANSEONG'],
+};
+const TODAY_GROUP_KO: Record<string, string> = {
+  BIGEOP: '비겁', SIKSANG: '식상', JAESEONG: '재성', GWANSEONG: '관성', INSEONG: '인성',
+};
+
+/**
+ * 오늘의 운세 점수. 궁합 점수(match.ts)와 같은 방식으로 기준 60에서 가감하고 45~95로 자른다.
+ * 매일 보는 화면이라 바닥을 45로 올려 둔다. 날짜와 사주만으로 정해지므로 같은 날 다시 봐도 같은 점수
+ */
+function todayScore(today: { stemGroup: string; branchGroup: string; fillsMissing: boolean; dayBranchClash: boolean; dayBranchCombine: boolean; dayStemCombine: boolean }, strengthBand: string) {
+  const helpful = TODAY_HELPFUL[strengthBand];
+  // 중화(빈 목록)는 가감 없음. 반가운 십성은 올리고, 아닌 십성은 그보다 작게 내린다
+  const weigh = (group: string, w: number) => (helpful.length === 0 ? 0 : helpful.includes(group) ? w : -Math.round(w * 0.75));
+
+  let score = 60;
+  score += weigh(today.stemGroup, 8);
+  score += weigh(today.branchGroup, 8);
+  if (today.dayStemCombine) score += 8;
+  if (today.dayBranchCombine) score += 10;
+  if (today.dayBranchClash) score -= 12;
+  if (today.fillsMissing) score += 5;
+  score = Math.max(45, Math.min(95, score));
+  const band = score >= 82 ? 'TODAY_GREAT' : score >= 70 ? 'TODAY_GOOD' : score >= 58 ? 'TODAY_FAIR' : 'TODAY_CARE';
+
+  // 결과 화면의 근거 칩 (좋음 · 주의). 점수를 움직인 것만 넣는다
+  const points: { label: string; tone: 'good' | 'care' }[] = [];
+  const point = (on: boolean, label: string, tone: 'good' | 'care') => { if (on) points.push({ label, tone }); };
+  point(today.dayStemCombine, '일간과 합', 'good');
+  point(today.dayBranchCombine, '일지와 합', 'good');
+  point(today.fillsMissing, '부족한 오행을 채움', 'good');
+  for (const g of [today.stemGroup, today.branchGroup]) {
+    point(helpful.includes(g) && !points.some(p => p.label === `${TODAY_GROUP_KO[g]}의 기운`), `${TODAY_GROUP_KO[g]}의 기운`, 'good');
+  }
+  point(today.dayBranchClash, '일지와 충', 'care');
+
+  return { score, band, points };
+}
+
 function validate(input: SajuInput, options: SajuOptions, asOf: number) {
   const errors: FieldError[] = [];
   const fail = (field: string, code: string) => errors.push({ field, code });
@@ -245,13 +288,14 @@ export function calculate(input: SajuInput, options: SajuOptions, asOf = Date.no
   const todayWall = asOf + seoulOffset(asOf);
   const todayStart = todayWall - mod(todayWall, DAY);
   const todayIdx = mod(Math.floor(todayStart / DAY) + 2440588 + 49, 60);
-  const today = {
+  const todayBase = {
     date: ymd(todayStart),
     ...luck(todayIdx),
     dayBranchClash: Math.abs((todayIdx % 12) - dayBranch) === 6,
     dayBranchCombine: mod((todayIdx % 12) + dayBranch, 12) === 1,
     dayStemCombine: Math.abs((todayIdx % 10) - dayStem) === 5,
   };
+  const today = { ...todayBase, ...todayScore(todayBase, band) };
 
   const spouseStarGroup = input.gender === 'M' ? 'JAESEONG' : 'GWANSEONG';
 

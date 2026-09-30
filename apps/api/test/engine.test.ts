@@ -123,3 +123,21 @@ test('입력 검증', () => {
   assert.deepEqual(codes(() => run({ birthTime: '24:00' })), ['TIME_INVALID']);
   assert.deepEqual(codes(() => run({ gender: 'X' as any, regionCode: '99' })), ['GENDER_REQUIRED', 'REGION_INVALID']);
 });
+
+test('오늘의 운세 점수: 45~95, 충은 깎고 합은 올리며 같은 날엔 같은 점수', () => {
+  const todayAt = (iso: string) => calculate(BASE, OPTS, Date.parse(iso)).chart.today;
+  const clash = todayAt('2026-09-19T03:00:00Z');  // 병신일: 인신충
+  const combine = todayAt('2026-09-22T03:00:00Z'); // 기해일: 인해합
+  assert.ok(clash.score < combine.score);
+  assert.ok(clash.points.some((p: { label: string; tone: string }) => p.label === '일지와 충' && p.tone === 'care'));
+  assert.ok(combine.points.some((p: { label: string; tone: string }) => p.label === '일지와 합' && p.tone === 'good'));
+
+  // 하루 안에서는 언제 봐도 같은 점수 (서울 같은 날)
+  assert.equal(todayAt('2026-09-19T03:00:00Z').score, todayAt('2026-09-19T09:00:00Z').score);
+
+  for (const iso of ['2026-09-13', '2026-09-14', '2026-09-19', '2026-09-22', '2026-10-01']) {
+    const t = todayAt(`${iso}T03:00:00Z`);
+    assert.ok(t.score >= 45 && t.score <= 95, `${iso}: ${t.score}`);
+    assert.ok(['TODAY_GREAT', 'TODAY_GOOD', 'TODAY_FAIR', 'TODAY_CARE'].includes(t.band));
+  }
+});

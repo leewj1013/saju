@@ -43,6 +43,7 @@ export const LABELS: Record<string, string> = {
   VERY_WEAK: '극신약', WEAK: '신약', BALANCED: '중화', STRONG: '신강', VERY_STRONG: '극신강',
   FORWARD: '순행', BACKWARD: '역행', M: '남성', F: '여성',
   PARTNER: '연인', FAMILY: '가족', FRIEND: '친구 · 동료',
+  TODAY_GREAT: '기운이 잘 따르는 날', TODAY_GOOD: '흐름이 좋은 날', TODAY_FAIR: '무난한 하루', TODAY_CARE: '한 박자 쉬어 갈 날',
   EXCELLENT: '아주 잘 맞는 사이', GOOD: '서로 채워 주는 사이', FAIR: '맞춰 갈수록 편안해지는 사이', EFFORT: '차이를 알면 단단해지는 사이',
 };
 

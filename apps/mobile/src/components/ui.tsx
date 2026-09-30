@@ -22,6 +22,26 @@ export const OH: Record<string, { bg: string; fg: string; border: string }> = {
   WATER: { bg: '#1A1A1A', fg: '#FFFFFF', border: '#1A1A1A' },
 };
 
+// 근거 칩 색: 오행 색과 겹치지 않는 좋음(초록) · 주의(노랑). 색만으로 구분되지 않게 ＋ · ！ 기호를 함께 쓴다
+const TONE = {
+  good: { bg: '#E3F1E6', fg: '#1F5A33' },
+  care: { bg: '#FBEFD5', fg: '#734B00' },
+};
+
+/** 점수의 근거 칩 (궁합 · 오늘의 운세 공용) */
+export function Points({ points }: { points: { label: string; tone: 'good' | 'care' }[] }) {
+  if (points.length === 0) return null;
+  return (
+    <View style={s.points}>
+      {points.map(p => (
+        <View key={p.label} style={[s.point, { backgroundColor: TONE[p.tone].bg }]}>
+          <Text style={[s.pointText, { color: TONE[p.tone].fg }]}>{p.tone === 'good' ? '＋ ' : '！ '}{p.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function Segmented<T extends string>({ label, options, value, onChange }: {
   label: string;
   options: { value: T; label: string; disabled?: boolean }[];
@@ -112,6 +132,9 @@ export function Sheet({ visible, title, onClose, children }: { visible: boolean;
 }
 
 const s = StyleSheet.create({
+  points: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center' },
+  point: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  pointText: { fontSize: 13, fontWeight: '600' },
   segmented: { flexDirection: 'row', backgroundColor: C.tint, borderRadius: 8, padding: 3, gap: 3 },
   segment: { flex: 1, minHeight: 44, borderRadius: 6, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   segmentOn: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.rule },
